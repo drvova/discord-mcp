@@ -123,7 +123,8 @@ function getAvailableTools() {
             type: "function",
             function: {
                 name: "discord_read_messages",
-                description: "Read messages from a Discord channel",
+                description:
+                    "Read messages from a Discord channel. If limit is not specified, defaults to 50 messages.",
                 parameters: {
                     type: "object",
                     properties: {
@@ -131,14 +132,6 @@ function getAvailableTools() {
                             type: "string",
                             description:
                                 "The ID of the channel to read messages from",
-                        },
-                        limit: {
-                            type: "integer",
-                            description:
-                                "Number of messages to retrieve as an integer (default: 50, max: 100). MUST be a number, not a string. Example: 50",
-                            minimum: 1,
-                            maximum: 100,
-                            default: 50,
                         },
                     },
                     required: ["channelId"],
@@ -174,11 +167,7 @@ async function executeDiscordTool(toolName: string, args: any) {
                 );
 
             case "discord_read_messages":
-                const limit =
-                    typeof args.limit === "string"
-                        ? parseInt(args.limit, 10)
-                        : args.limit || 50;
-                return await discordService.readMessages(args.channelId, limit);
+                return await discordService.readMessages(args.channelId, 50);
 
             default:
                 throw new Error(`Unknown tool: ${toolName}`);
