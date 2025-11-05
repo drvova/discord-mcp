@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 interface DiscordPanelProps {
     guilds: DiscordGuild[];
     selectedGuildId: string | null;
+    selectedChannelId?: string | null;
     onSelectGuild: (guildId: string) => void;
     channelStructure: {
         categories: any[];
@@ -25,6 +26,7 @@ interface DiscordPanelProps {
 export function DiscordPanel({
     guilds,
     selectedGuildId,
+    selectedChannelId,
     onSelectGuild,
     channelStructure,
     loading,
@@ -131,6 +133,7 @@ export function DiscordPanel({
                                         channelStructure.uncategorizedChannels
                                     }
                                     onChannelClick={onChannelClick}
+                                    selectedChannelId={selectedChannelId}
                                 />
                             ) : (
                                 <div className="text-center py-8 text-sm text-muted-foreground">

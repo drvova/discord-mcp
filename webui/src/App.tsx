@@ -167,6 +167,7 @@ function App() {
                 <DiscordPanel
                     guilds={guilds}
                     selectedGuildId={selectedGuildId}
+                    selectedChannelId={selectedChannelId}
                     onSelectGuild={setSelectedGuildId}
                     channelStructure={channelStructure}
                     loading={discordLoading}
