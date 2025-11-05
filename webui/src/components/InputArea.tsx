@@ -3,18 +3,20 @@ import { Button } from "@/components/ui/button";
 import { PromptInput } from "@/components/ui/prompt-input";
 import { Send, Smile } from "lucide-react";
 import { StickerPicker } from "@/components/sticker-picker/StickerPicker";
-import type { DiscordEmoji, DiscordSticker, TenorGif } from "@/types";
+import type { DiscordEmoji } from "@/types";
 
 interface InputAreaProps {
     onSendMessage: (message: string) => void;
     disabled?: boolean;
     guildId?: string;
+    channelId?: string;
 }
 
 export function InputArea({
     onSendMessage,
     disabled,
     guildId,
+    channelId,
 }: InputAreaProps) {
     const [message, setMessage] = useState("");
     const [showPicker, setShowPicker] = useState(false);
@@ -38,22 +40,8 @@ export function InputArea({
         }
     };
 
-    const handlePickerSelect = (
-        type: "emoji" | "sticker" | "gif",
-        data: DiscordEmoji | DiscordSticker | TenorGif,
-    ) => {
-        if (type === "emoji") {
-            const emoji = data as DiscordEmoji;
-            setMessage((prev) => prev + emoji.usage);
-        } else if (type === "sticker") {
-            const sticker = data as DiscordSticker;
-            onSendMessage(`[Sticker: ${sticker.name}] ${sticker.url}`);
-            setMessage("");
-        } else if (type === "gif") {
-            const gif = data as TenorGif;
-            onSendMessage(gif.url);
-            setMessage("");
-        }
+    const handleEmojiSelect = (emoji: DiscordEmoji) => {
+        setMessage((prev) => prev + emoji.usage);
 
         if (inputRef.current) {
             inputRef.current.focus();
@@ -68,7 +56,8 @@ export function InputArea({
                         {guildId && showPicker && (
                             <StickerPicker
                                 guildId={guildId}
-                                onSelect={handlePickerSelect}
+                                channelId={channelId}
+                                onSelectEmoji={handleEmojiSelect}
                                 onClose={() => setShowPicker(false)}
                             />
                         )}
@@ -81,6 +70,11 @@ export function InputArea({
                                     onClick={() => setShowPicker(!showPicker)}
                                     className="mb-3 flex-shrink-0"
                                     type="button"
+                                    title={
+                                        channelId
+                                            ? "Add emoji, sticker, or GIF"
+                                            : "Select a channel to send stickers and GIFs"
+                                    }
                                 >
                                     <Smile className="h-5 w-5" />
                                 </Button>

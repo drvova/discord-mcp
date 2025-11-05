@@ -370,6 +370,75 @@ This constitution governs all operations. Adherence is mandatory.`,
 });
 
 // Discord API endpoints
+app.post("/api/discord/send-message", async (req, res) => {
+    try {
+        const { channelId, content } = req.body;
+
+        if (!channelId || !content) {
+            return res
+                .status(400)
+                .json({ error: "channelId and content are required" });
+        }
+
+        const discordService = discordController.getDiscordService();
+        const result = await discordService.sendMessage(channelId, content);
+
+        res.json({ success: true, result });
+    } catch (error: any) {
+        console.error("Send message error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post("/api/discord/send-gif", async (req, res) => {
+    try {
+        const { channelId, gifUrl, title } = req.body;
+
+        if (!channelId || !gifUrl) {
+            return res
+                .status(400)
+                .json({ error: "channelId and gifUrl are required" });
+        }
+
+        const discordService = discordController.getDiscordService();
+        const result = await discordService.sendMessageWithEmbed(
+            channelId,
+            "",
+            gifUrl,
+            title,
+        );
+
+        res.json({ success: true, result });
+    } catch (error: any) {
+        console.error("Send GIF error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post("/api/discord/send-sticker", async (req, res) => {
+    try {
+        const { channelId, stickerId, content } = req.body;
+
+        if (!channelId || !stickerId) {
+            return res
+                .status(400)
+                .json({ error: "channelId and stickerId are required" });
+        }
+
+        const discordService = discordController.getDiscordService();
+        const result = await discordService.sendSticker(
+            channelId,
+            stickerId,
+            content,
+        );
+
+        res.json({ success: true, result });
+    } catch (error: any) {
+        console.error("Send sticker error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.get("/api/discord/guilds", async (req, res) => {
     try {
         const discordService = discordController.getDiscordService();

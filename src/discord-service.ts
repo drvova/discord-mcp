@@ -408,6 +408,57 @@ Boosts:
         return `Message sent successfully. Message link: ${sentMessage.url}`;
     }
 
+    async sendMessageWithEmbed(
+        channelId: string,
+        content: string,
+        embedUrl: string,
+        embedTitle?: string,
+    ): Promise<string> {
+        this.ensureReady();
+
+        const channel = this.client.channels.cache.get(
+            channelId,
+        ) as TextChannel;
+        if (!channel || channel.type !== ChannelType.GuildText) {
+            throw new Error("Channel not found by channelId");
+        }
+
+        const embed = new EmbedBuilder().setImage(embedUrl).setColor(0x5865f2);
+
+        if (embedTitle) {
+            embed.setTitle(embedTitle);
+        }
+
+        const sentMessage = await channel.send({
+            content: content || undefined,
+            embeds: [embed],
+        });
+
+        return `Message with embed sent successfully. Message link: ${sentMessage.url}`;
+    }
+
+    async sendSticker(
+        channelId: string,
+        stickerId: string,
+        content?: string,
+    ): Promise<string> {
+        this.ensureReady();
+
+        const channel = this.client.channels.cache.get(
+            channelId,
+        ) as TextChannel;
+        if (!channel || channel.type !== ChannelType.GuildText) {
+            throw new Error("Channel not found by channelId");
+        }
+
+        const sentMessage = await channel.send({
+            content: content || undefined,
+            stickers: [stickerId],
+        });
+
+        return `Sticker sent successfully. Message link: ${sentMessage.url}`;
+    }
+
     async editMessage(
         channelId: string,
         messageId: string,

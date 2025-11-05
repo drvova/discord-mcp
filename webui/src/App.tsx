@@ -33,6 +33,9 @@ function App() {
 
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [discordPanelOpen, setDiscordPanelOpen] = useState(false);
+    const [selectedChannelId, setSelectedChannelId] = useState<string | null>(
+        null,
+    );
 
     const handleSendMessage = async (message: string) => {
         console.log("[App] handleSendMessage called with:", message);
@@ -77,6 +80,7 @@ function App() {
     };
 
     const handleChannelClick = (channel: DiscordChannel) => {
+        setSelectedChannelId(channel.id);
         const message = `Tell me about the #${channel.name} channel (ID: ${channel.id})`;
         handleSendMessage(message);
         setDiscordPanelOpen(false);
@@ -129,6 +133,7 @@ function App() {
                         onSendMessage={handleSendMessage}
                         disabled={isProcessing}
                         guildId={selectedGuildId}
+                        channelId={selectedChannelId}
                     />
                 </div>
 
