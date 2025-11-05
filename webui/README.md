@@ -31,8 +31,23 @@ npm install
 
 ## 🏃 Development
 
+### Full Stack Development (Recommended)
+From the **root directory** (`discord-mcp/`):
 ```bash
-# Start dev server (http://localhost:3001)
+# Start both backend API and frontend UI
+npm run dev:fullstack
+```
+
+This runs:
+- **Backend**: `http://localhost:3000` - Express server with Discord & Groq AI
+- **Frontend**: `http://localhost:3001` - Vite dev server with HMR
+
+Open `http://localhost:3001` in your browser to use the UI.
+
+### Frontend Only
+From the **webui directory**:
+```bash
+# Start dev server (requires backend running separately)
 npm run dev
 
 # Build for production
@@ -41,6 +56,8 @@ npm run build
 # Preview production build
 npm run preview
 ```
+
+**Note**: The frontend proxies `/api` requests to `http://localhost:3000`, so make sure the backend server is running.
 
 ## 🏗️ Project Structure
 
