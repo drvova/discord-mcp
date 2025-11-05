@@ -50,20 +50,47 @@ function App() {
             updatedHistory.length,
         );
 
-        await sendMessage(message, updatedHistory, (response, toolCalls) => {
-            console.log(
-                "[App] onSuccess callback called with response:",
-                response.substring(0, 100),
-            );
-            addMessage(conversationId, {
-                role: "assistant",
-                content: response,
-            });
-            if (toolCalls.length) {
-                console.log("[App] Adding tool calls:", toolCalls.length);
-                addToolCalls(conversationId, toolCalls);
-            }
-        });
+        const selectedGuild = guilds.find((g) => g.id === selectedGuildId);
+        const allChannels = channelStructure
+            ? [
+                  ...channelStructure.categories.flatMap((cat) => cat.channels),
+                  ...channelStructure.uncategorizedChannels,
+              ]
+            : [];
+        const selectedChannel = allChannels.find(
+            (c) => c.id === selectedChannelId,
+        );
+
+        await sendMessage(
+            message,
+            updatedHistory,
+            (response, toolCalls) => {
+                console.log(
+                    "[App] onSuccess callback called with response:",
+                    response.substring(0, 100),
+                );
+                addMessage(conversationId, {
+                    role: "assistant",
+                    content: response,
+                });
+                if (toolCalls.length) {
+                    console.log("[App] Adding tool calls:", toolCalls.length);
+                    addToolCalls(conversationId, toolCalls);
+                }
+            },
+            undefined,
+            {
+                guildId: selectedGuildId || undefined,
+                guildName: selectedGuild?.name,
+                channelId: selectedChannelId || undefined,
+                channelName: selectedChannel?.name,
+                availableChannels: allChannels.map((c) => ({
+                    id: c.id,
+                    name: c.name,
+                    type: c.type,
+                })),
+            },
+        );
     };
 
     const handleQuickAction = (action: string, guildId: string) => {
