@@ -79,3 +79,9 @@ config/production.json
 *.temp
 debug.log
 audit.log
+
+# Prevent compiled files in source directories
+webui/src/**/*.js
+webui/src/**/*.d.ts
+webui/src/**/*.js.map
+webui/src/**/*.d.ts.map

@@ -1,45 +1,57 @@
 {
-  "name": "discord-mcp",
-  "version": "0.0.1",
-  "description": "Model Context Protocol (MCP) server for Discord API integration",
-  "main": "dist/index.js",
-  "type": "module",
-  "bin": {
-    "discord-mcp": "./dist/index.js"
-  },
-  "scripts": {
-    "build": "tsc",
-    "dev": "tsx src/index.ts",
-    "start": "node dist/index.js",
-    "prepare": "npm run build"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/sashathelambo/discord-mcp.git"
-  },
-  "keywords": [
-    "mcp",
-    "discord",
-    "discord-bot",
-    "model-context-protocol"
-  ],
-  "author": "SaseQ",
-  "license": "MIT",
-  "bugs": {
-    "url": "https://github.com/sashathelambo/discord-mcp/issues"
-  },
-  "homepage": "https://github.com/sashathelambo/discord-mcp#readme",
-  "dependencies": {
-    "@discordjs/opus": "^0.10.0",
-    "@discordjs/voice": "^0.18.0",
-    "@modelcontextprotocol/sdk": "^1.16.0",
-    "discord.js": "^14.21.0",
-    "dotenv": "^17.2.0",
-    "zod": "^3.25.76"
-  },
-  "devDependencies": {
-    "@types/node": "^24.0.15",
-    "tsx": "^4.20.3",
-    "typescript": "^5.8.3"
-  }
+    "name": "discord-mcp",
+    "version": "0.0.1",
+    "description": "Model Context Protocol (MCP) server for Discord API integration",
+    "main": "dist/index.js",
+    "type": "module",
+    "bin": {
+        "discord-mcp": "./dist/index.js"
+    },
+    "scripts": {
+        "build": "tsc",
+        "build:all": "npm run build && npm run webui:build",
+        "dev": "tsx src/index.ts",
+        "start": "node dist/index.js",
+        "web": "tsx webui/src/web-server.ts",
+        "web:build": "npm run build && node dist/webui/src/web-server.js",
+        "webui:dev": "npm --prefix webui run dev",
+        "webui:build": "npm --prefix webui run build",
+        "dev:fullstack": "concurrently --names \"BACKEND,FRONTEND\" --prefix-colors \"bgBlue.bold,bgMagenta.bold\" \"npm run web\" \"npm run webui:dev\"",
+        "prepare": "npm run build"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/sashathelambo/discord-mcp.git"
+    },
+    "keywords": [
+        "mcp",
+        "discord",
+        "discord-bot",
+        "model-context-protocol"
+    ],
+    "author": "SaseQ",
+    "license": "MIT",
+    "bugs": {
+        "url": "https://github.com/sashathelambo/discord-mcp/issues"
+    },
+    "homepage": "https://github.com/sashathelambo/discord-mcp#readme",
+    "dependencies": {
+        "@discordjs/opus": "^0.10.0",
+        "@discordjs/voice": "^0.18.0",
+        "@modelcontextprotocol/sdk": "^1.16.0",
+        "@types/cors": "^2.8.19",
+        "@types/express": "^5.0.5",
+        "cors": "^2.8.5",
+        "discord.js": "^14.21.0",
+        "dotenv": "^17.2.0",
+        "express": "^5.1.0",
+        "groq-sdk": "^0.34.0",
+        "zod": "^3.25.76"
+    },
+    "devDependencies": {
+        "@types/node": "^24.0.15",
+        "concurrently": "^9.2.1",
+        "tsx": "^4.20.3",
+        "typescript": "^5.8.3"
+    }
 }
