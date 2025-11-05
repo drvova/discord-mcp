@@ -133,7 +133,7 @@ function getAvailableTools() {
                                 "The ID of the channel to read messages from",
                         },
                         limit: {
-                            type: "number",
+                            type: "integer",
                             description:
                                 "Number of messages to retrieve (default: 50, max: 100)",
                         },
@@ -171,10 +171,11 @@ async function executeDiscordTool(toolName: string, args: any) {
                 );
 
             case "discord_read_messages":
-                return await discordService.readMessages(
-                    args.channelId,
-                    args.limit || 50,
-                );
+                const limit =
+                    typeof args.limit === "string"
+                        ? parseInt(args.limit, 10)
+                        : args.limit || 50;
+                return await discordService.readMessages(args.channelId, limit);
 
             default:
                 throw new Error(`Unknown tool: ${toolName}`);
