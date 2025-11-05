@@ -468,6 +468,136 @@ app.get("/api/discord/guilds/:guildId/info", async (req, res) => {
     }
 });
 
+app.get("/api/discord/guilds/:guildId/emojis", async (req, res) => {
+    try {
+        const { guildId } = req.params;
+        const discordService = discordController.getDiscordService();
+        const client = (discordService as any).client;
+
+        const guild = client.guilds.cache.get(guildId);
+        if (!guild) {
+            return res.status(404).json({ error: "Guild not found" });
+        }
+
+        const emojis = Array.from(guild.emojis.cache.values()).map(
+            (emoji: any) => ({
+                id: emoji.id,
+                name: emoji.name,
+                animated: emoji.animated || false,
+                url: emoji.url,
+                usage: `<:${emoji.name}:${emoji.id}>`,
+                creator: emoji.author?.username,
+            }),
+        );
+
+        res.json(emojis);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get("/api/discord/guilds/:guildId/stickers", async (req, res) => {
+    try {
+        const { guildId } = req.params;
+        const discordService = discordController.getDiscordService();
+        const client = (discordService as any).client;
+
+        const guild = client.guilds.cache.get(guildId);
+        if (!guild) {
+            return res.status(404).json({ error: "Guild not found" });
+        }
+
+        const stickers = Array.from(guild.stickers.cache.values()).map(
+            (sticker: any) => ({
+                id: sticker.id,
+                name: sticker.name,
+                description: sticker.description || "",
+                tags: sticker.tags || "",
+                format: sticker.format,
+                url: sticker.url,
+                creator: sticker.user?.username,
+            }),
+        );
+
+        res.json(stickers);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get("/api/tenor/search", async (req, res) => {
+    try {
+        const { q, limit = 20 } = req.query;
+
+        if (!q) {
+            return res.status(400).json({ error: "Search query is required" });
+        }
+
+        const tenorApiKey =
+            process.env.TENOR_API_KEY ||
+            "AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ";
+        const url = `https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(q as string)}&key=${tenorApiKey}&limit=${limit}&media_filter=gif,tinygif`;
+
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            throw new Error(`Tenor API error: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+
+        const gifs = data.results.map((gif: any) => ({
+            id: gif.id,
+            title: gif.content_description || gif.h1_title || "GIF",
+            url: gif.media_formats.gif?.url || gif.media_formats.tinygif?.url,
+            preview:
+                gif.media_formats.tinygif?.url ||
+                gif.media_formats.nanogif?.url,
+            width: gif.media_formats.gif?.dims?.[0] || 498,
+            height: gif.media_formats.gif?.dims?.[1] || 498,
+        }));
+
+        res.json(gifs);
+    } catch (error: any) {
+        console.error("Tenor API error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get("/api/tenor/featured", async (req, res) => {
+    try {
+        const { limit = 20 } = req.query;
+        const tenorApiKey =
+            process.env.TENOR_API_KEY ||
+            "AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ";
+        const url = `https://tenor.googleapis.com/v2/featured?key=${tenorApiKey}&limit=${limit}&media_filter=gif,tinygif`;
+
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            throw new Error(`Tenor API error: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+
+        const gifs = data.results.map((gif: any) => ({
+            id: gif.id,
+            title: gif.content_description || gif.h1_title || "GIF",
+            url: gif.media_formats.gif?.url || gif.media_formats.tinygif?.url,
+            preview:
+                gif.media_formats.tinygif?.url ||
+                gif.media_formats.nanogif?.url,
+            width: gif.media_formats.gif?.dims?.[0] || 498,
+            height: gif.media_formats.gif?.dims?.[1] || 498,
+        }));
+
+        res.json(gifs);
+    } catch (error: any) {
+        console.error("Tenor API error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Health check endpoint
 app.get("/api/health", (req, res) => {
     res.json({
