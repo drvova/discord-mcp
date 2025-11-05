@@ -43,3 +43,31 @@ export interface ChannelStructure {
     categories: DiscordCategory[];
     uncategorizedChannels: DiscordChannel[];
 }
+
+export interface DiscordEmoji {
+    id: string;
+    name: string;
+    animated: boolean;
+    url: string;
+    usage: string;
+    creator?: string;
+}
+
+export interface DiscordSticker {
+    id: string;
+    name: string;
+    description: string;
+    tags: string;
+    format: number;
+    url: string;
+    creator?: string;
+}
+
+export interface TenorGif {
+    id: string;
+    title: string;
+    url: string;
+    preview: string;
+    width: number;
+    height: number;
+}

@@ -128,6 +128,7 @@ function App() {
                     <InputArea
                         onSendMessage={handleSendMessage}
                         disabled={isProcessing}
+                        guildId={selectedGuildId}
                     />
                 </div>
 
