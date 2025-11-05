@@ -68,7 +68,14 @@ export function InputArea({
         const textBeforeCursor = value.substring(0, cursorPos);
         const atMatch = textBeforeCursor.match(/@(\w*)$/);
 
-        if (atMatch) {
+        console.log(
+            "[InputArea] @ match found:",
+            atMatch,
+            "channels:",
+            availableChannels.length,
+        );
+
+        if (atMatch && availableChannels.length > 0) {
             const filter = atMatch[1];
             setMentionFilter(filter);
             setShowMentions(true);
