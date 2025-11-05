@@ -161,6 +161,16 @@ function App() {
                         disabled={isProcessing}
                         guildId={selectedGuildId}
                         channelId={selectedChannelId}
+                        availableChannels={
+                            channelStructure
+                                ? [
+                                      ...channelStructure.categories.flatMap(
+                                          (cat) => cat.channels,
+                                      ),
+                                      ...channelStructure.uncategorizedChannels,
+                                  ]
+                                : []
+                        }
                     />
                 </div>
 
