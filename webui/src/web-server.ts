@@ -135,7 +135,10 @@ function getAvailableTools() {
                         limit: {
                             type: "integer",
                             description:
-                                "Number of messages to retrieve (default: 50, max: 100)",
+                                "Number of messages to retrieve as an integer (default: 50, max: 100). MUST be a number, not a string. Example: 50",
+                            minimum: 1,
+                            maximum: 100,
+                            default: 50,
                         },
                     },
                     required: ["channelId"],
