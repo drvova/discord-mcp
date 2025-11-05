@@ -59,3 +59,44 @@ export async function fetchFeaturedGifs(): Promise<
     if (!response.ok) throw new Error("Failed to fetch featured GIFs");
     return response.json();
 }
+
+export async function sendDiscordMessage(
+    channelId: string,
+    content: string,
+): Promise<{ success: boolean; result: string }> {
+    const response = await fetch("/api/discord/send-message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channelId, content }),
+    });
+    if (!response.ok) throw new Error("Failed to send message");
+    return response.json();
+}
+
+export async function sendDiscordGif(
+    channelId: string,
+    gifUrl: string,
+    title?: string,
+): Promise<{ success: boolean; result: string }> {
+    const response = await fetch("/api/discord/send-gif", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channelId, gifUrl, title }),
+    });
+    if (!response.ok) throw new Error("Failed to send GIF");
+    return response.json();
+}
+
+export async function sendDiscordSticker(
+    channelId: string,
+    stickerId: string,
+    content?: string,
+): Promise<{ success: boolean; result: string }> {
+    const response = await fetch("/api/discord/send-sticker", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channelId, stickerId, content }),
+    });
+    if (!response.ok) throw new Error("Failed to send sticker");
+    return response.json();
+}

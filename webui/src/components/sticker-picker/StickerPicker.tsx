@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -9,13 +9,16 @@ import {
     fetchStickers,
     searchTenorGifs,
     fetchFeaturedGifs,
+    sendDiscordGif,
+    sendDiscordSticker,
 } from "@/api/discord";
 import type { DiscordEmoji, DiscordSticker, TenorGif } from "@/types";
 import { cn } from "@/lib/utils";
 
 interface StickerPickerProps {
     guildId: string;
-    onSelect: (type: "emoji" | "sticker" | "gif", data: any) => void;
+    channelId?: string;
+    onSelectEmoji?: (emoji: DiscordEmoji) => void;
     onClose: () => void;
 }
 
@@ -23,7 +26,8 @@ type Tab = "emoji" | "sticker" | "gif";
 
 export function StickerPicker({
     guildId,
-    onSelect,
+    channelId,
+    onSelectEmoji,
     onClose,
 }: StickerPickerProps) {
     const [activeTab, setActiveTab] = useState<Tab>("emoji");
@@ -34,6 +38,7 @@ export function StickerPicker({
     const [loading, setLoading] = useState(false);
     const [emojiSearch, setEmojiSearch] = useState("");
     const [stickerSearch, setStickerSearch] = useState("");
+    const [sending, setSending] = useState(false);
 
     useEffect(() => {
         loadEmojis();
@@ -97,6 +102,49 @@ export function StickerPicker({
         }
     };
 
+    const handleEmojiSelect = (emoji: DiscordEmoji) => {
+        if (onSelectEmoji) {
+            onSelectEmoji(emoji);
+            onClose();
+        }
+    };
+
+    const handleStickerSelect = async (sticker: DiscordSticker) => {
+        if (!channelId) {
+            console.error("No channel selected");
+            return;
+        }
+
+        try {
+            setSending(true);
+            await sendDiscordSticker(channelId, sticker.id);
+            onClose();
+        } catch (error) {
+            console.error("Failed to send sticker:", error);
+            alert("Failed to send sticker. Please try again.");
+        } finally {
+            setSending(false);
+        }
+    };
+
+    const handleGifSelect = async (gif: TenorGif) => {
+        if (!channelId) {
+            console.error("No channel selected");
+            return;
+        }
+
+        try {
+            setSending(true);
+            await sendDiscordGif(channelId, gif.url, gif.title);
+            onClose();
+        } catch (error) {
+            console.error("Failed to send GIF:", error);
+            alert("Failed to send GIF. Please try again.");
+        } finally {
+            setSending(false);
+        }
+    };
+
     const filteredEmojis = emojis.filter((emoji) =>
         emoji.name.toLowerCase().includes(emojiSearch.toLowerCase()),
     );
@@ -117,6 +165,7 @@ export function StickerPicker({
                         variant={activeTab === "emoji" ? "default" : "ghost"}
                         size="sm"
                         onClick={() => setActiveTab("emoji")}
+                        disabled={sending}
                     >
                         <Smile className="h-4 w-4 mr-1" />
                         Emojis
@@ -125,6 +174,7 @@ export function StickerPicker({
                         variant={activeTab === "sticker" ? "default" : "ghost"}
                         size="sm"
                         onClick={() => setActiveTab("sticker")}
+                        disabled={sending}
                     >
                         <Sticker className="h-4 w-4 mr-1" />
                         Stickers
@@ -133,12 +183,18 @@ export function StickerPicker({
                         variant={activeTab === "gif" ? "default" : "ghost"}
                         size="sm"
                         onClick={() => setActiveTab("gif")}
+                        disabled={sending}
                     >
                         <Image className="h-4 w-4 mr-1" />
                         GIFs
                     </Button>
                 </div>
-                <Button variant="ghost" size="icon" onClick={onClose}>
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={onClose}
+                    disabled={sending}
+                >
                     <X className="h-4 w-4" />
                 </Button>
             </div>
@@ -152,6 +208,7 @@ export function StickerPicker({
                             value={emojiSearch}
                             onChange={(e) => setEmojiSearch(e.target.value)}
                             className="pl-9"
+                            disabled={sending}
                         />
                     </div>
                 </div>
@@ -166,6 +223,7 @@ export function StickerPicker({
                             value={stickerSearch}
                             onChange={(e) => setStickerSearch(e.target.value)}
                             className="pl-9"
+                            disabled={sending}
                         />
                     </div>
                 </div>
@@ -180,6 +238,7 @@ export function StickerPicker({
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             className="pl-9"
+                            disabled={sending}
                         />
                     </div>
                 </div>
@@ -187,15 +246,23 @@ export function StickerPicker({
 
             <ScrollArea className="h-96">
                 <div className="p-3">
+                    {sending && (
+                        <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-10">
+                            <div className="text-center">
+                                <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2" />
+                                <p className="text-sm text-muted-foreground">
+                                    Sending...
+                                </p>
+                            </div>
+                        </div>
+                    )}
+
                     {activeTab === "emoji" && (
                         <EmojiGrid
                             emojis={filteredEmojis}
                             loading={loading}
                             searchQuery={emojiSearch}
-                            onSelect={(emoji) => {
-                                onSelect("emoji", emoji);
-                                onClose();
-                            }}
+                            onSelect={handleEmojiSelect}
                         />
                     )}
                     {activeTab === "sticker" && (
@@ -203,20 +270,16 @@ export function StickerPicker({
                             stickers={filteredStickers}
                             loading={loading}
                             searchQuery={stickerSearch}
-                            onSelect={(sticker) => {
-                                onSelect("sticker", sticker);
-                                onClose();
-                            }}
+                            channelId={channelId}
+                            onSelect={handleStickerSelect}
                         />
                     )}
                     {activeTab === "gif" && (
                         <GifGrid
                             gifs={gifs}
                             loading={loading}
-                            onSelect={(gif) => {
-                                onSelect("gif", gif);
-                                onClose();
-                            }}
+                            channelId={channelId}
+                            onSelect={handleGifSelect}
                         />
                     )}
                 </div>
@@ -282,11 +345,13 @@ function StickerGrid({
     stickers,
     loading,
     searchQuery,
+    channelId,
     onSelect,
 }: {
     stickers: DiscordSticker[];
     loading: boolean;
     searchQuery: string;
+    channelId?: string;
     onSelect: (sticker: DiscordSticker) => void;
 }) {
     if (loading) {
@@ -304,6 +369,14 @@ function StickerGrid({
                 {searchQuery
                     ? "No stickers found matching your search"
                     : "No custom stickers found"}
+            </div>
+        );
+    }
+
+    if (!channelId) {
+        return (
+            <div className="text-center py-12 text-sm text-muted-foreground">
+                Please select a channel to send stickers
             </div>
         );
     }
@@ -337,10 +410,12 @@ function StickerGrid({
 function GifGrid({
     gifs,
     loading,
+    channelId,
     onSelect,
 }: {
     gifs: TenorGif[];
     loading: boolean;
+    channelId?: string;
     onSelect: (gif: TenorGif) => void;
 }) {
     if (loading) {
@@ -356,6 +431,14 @@ function GifGrid({
         return (
             <div className="text-center py-12 text-sm text-muted-foreground">
                 No GIFs found
+            </div>
+        );
+    }
+
+    if (!channelId) {
+        return (
+            <div className="text-center py-12 text-sm text-muted-foreground">
+                Please select a channel to send GIFs
             </div>
         );
     }
