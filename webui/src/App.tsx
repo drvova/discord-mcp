@@ -35,22 +35,32 @@ function App() {
     const [discordPanelOpen, setDiscordPanelOpen] = useState(false);
 
     const handleSendMessage = async (message: string) => {
+        console.log("[App] handleSendMessage called with:", message);
         const userMessage: Message = { role: "user", content: message };
         const conversationId = currentId || createConversation(message);
 
         addMessage(conversationId, userMessage);
 
-        await sendMessage(
-            message,
-            current?.messages || [userMessage],
-            (response, toolCalls) => {
-                addMessage(conversationId, {
-                    role: "assistant",
-                    content: response,
-                });
-                if (toolCalls.length) addToolCalls(conversationId, toolCalls);
-            },
+        const updatedHistory = [...(current?.messages || []), userMessage];
+        console.log(
+            "[App] Sending with history length:",
+            updatedHistory.length,
         );
+
+        await sendMessage(message, updatedHistory, (response, toolCalls) => {
+            console.log(
+                "[App] onSuccess callback called with response:",
+                response.substring(0, 100),
+            );
+            addMessage(conversationId, {
+                role: "assistant",
+                content: response,
+            });
+            if (toolCalls.length) {
+                console.log("[App] Adding tool calls:", toolCalls.length);
+                addToolCalls(conversationId, toolCalls);
+            }
+        });
     };
 
     const handleQuickAction = (action: string, guildId: string) => {
