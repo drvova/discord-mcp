@@ -108,7 +108,7 @@ function App() {
 
     const handleChannelClick = (channel: DiscordChannel) => {
         setSelectedChannelId(channel.id);
-        const message = `Tell me about the #${channel.name} channel (ID: ${channel.id})`;
+        const message = `I've selected the #${channel.name} channel. Please read the recent messages from this channel and summarize what's happening.`;
         handleSendMessage(message);
         setDiscordPanelOpen(false);
     };
