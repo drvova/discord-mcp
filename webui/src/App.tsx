@@ -61,6 +61,20 @@ function App() {
             (c) => c.id === selectedChannelId,
         );
 
+        const contextData = {
+            guildId: selectedGuildId || undefined,
+            guildName: selectedGuild?.name,
+            channelId: selectedChannelId || undefined,
+            channelName: selectedChannel?.name,
+            availableChannels: allChannels.map((c) => ({
+                id: c.id,
+                name: c.name,
+                type: c.type,
+            })),
+        };
+
+        console.log("[App] Sending context:", contextData);
+
         await sendMessage(
             message,
             updatedHistory,
@@ -79,17 +93,7 @@ function App() {
                 }
             },
             undefined,
-            {
-                guildId: selectedGuildId || undefined,
-                guildName: selectedGuild?.name,
-                channelId: selectedChannelId || undefined,
-                channelName: selectedChannel?.name,
-                availableChannels: allChannels.map((c) => ({
-                    id: c.id,
-                    name: c.name,
-                    type: c.type,
-                })),
-            },
+            contextData,
         );
     };
 
