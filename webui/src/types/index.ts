@@ -24,6 +24,13 @@ export interface ChatResponse {
 export interface ChatRequest {
     message: string;
     conversationHistory: Message[];
+    context?: {
+        guildId?: string;
+        guildName?: string;
+        channelId?: string;
+        channelName?: string;
+        availableChannels?: Array<{ id: string; name: string; type: string }>;
+    };
 }
 
 export * from "./discord";

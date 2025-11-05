@@ -11,6 +11,17 @@ export function useChat() {
         history: Message[],
         onSuccess: (response: string, toolCalls: any[]) => void,
         onError?: (error: Error) => void,
+        context?: {
+            guildId?: string;
+            guildName?: string;
+            channelId?: string;
+            channelName?: string;
+            availableChannels?: Array<{
+                id: string;
+                name: string;
+                type: string;
+            }>;
+        },
     ) => {
         if (isProcessing) {
             console.warn("[useChat] Already processing, ignoring request");
@@ -26,6 +37,7 @@ export function useChat() {
             const data = await sendChatMessage({
                 message,
                 conversationHistory: history.slice(-MAX_MESSAGE_HISTORY),
+                context,
             });
             console.log("[useChat] Received response, calling onSuccess");
             onSuccess(data.response, data.toolCalls || []);

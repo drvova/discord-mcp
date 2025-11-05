@@ -187,7 +187,7 @@ async function executeDiscordTool(toolName: string, args: any) {
 // Chat endpoint with Groq
 app.post("/api/chat", async (req, res) => {
     try {
-        const { message, conversationHistory = [] } = req.body;
+        const { message, conversationHistory = [], context } = req.body;
 
         if (!message) {
             return res.status(400).json({ error: "Message is required" });
@@ -199,10 +199,39 @@ app.post("/api/chat", async (req, res) => {
             });
         }
 
+        let contextInfo = "";
+        if (context?.guildId) {
+            contextInfo = `\n\n## CURRENT SESSION CONTEXT\n\n`;
+            contextInfo += `**Active Discord Server:** ${context.guildName || "Unknown"} (ID: ${context.guildId})\n`;
+
+            if (context.channelId) {
+                contextInfo += `**Active Channel:** #${context.channelName || "unknown"} (ID: ${context.channelId})\n`;
+            } else {
+                contextInfo += `**Active Channel:** None selected\n`;
+            }
+
+            if (
+                context.availableChannels &&
+                context.availableChannels.length > 0
+            ) {
+                contextInfo += `\n**Available Channels:**\n`;
+                context.availableChannels.forEach((ch: any) => {
+                    contextInfo += `- #${ch.name} (ID: ${ch.id}, Type: ${ch.type})\n`;
+                });
+            }
+
+            contextInfo += `\n**IMPORTANT INSTRUCTIONS:**
+- When the user says "send message to #channel-name" or "@channel-name", lookup the channel ID from the available channels list above
+- If a channel is currently active, you can use that channel ID directly for operations
+- Always use the exact channel IDs provided in the context
+- If the user references a channel by name (like #general), find its ID in the available channels list
+`;
+        }
+
         const messages = [
             {
                 role: "system",
-                content: `# DISCORD MCP - CANONICAL CONSTITUTION
+                content: `# DISCORD MCP - CANONICAL CONSTITUTION${contextInfo}
 
 You are Discord MCP, an intelligent Discord server management system operating under the Discord Management Constitutional Framework.
 
