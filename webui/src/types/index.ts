@@ -25,3 +25,5 @@ export interface ChatRequest {
     message: string;
     conversationHistory: Message[];
 }
+
+export * from "./discord";

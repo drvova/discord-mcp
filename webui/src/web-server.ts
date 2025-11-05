@@ -369,6 +369,105 @@ This constitution governs all operations. Adherence is mandatory.`,
     }
 });
 
+// Discord API endpoints
+app.get("/api/discord/guilds", async (req, res) => {
+    try {
+        const discordService = discordController.getDiscordService();
+        const client = (discordService as any).client;
+
+        const guilds = Array.from(client.guilds.cache.values()).map(
+            (guild: any) => ({
+                id: guild.id,
+                name: guild.name,
+                memberCount: guild.memberCount,
+                channelCount: guild.channels.cache.size,
+                createdAt: guild.createdAt.toISOString(),
+                icon: guild.iconURL(),
+            }),
+        );
+
+        res.json(guilds);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get("/api/discord/guilds/:guildId/channel-structure", async (req, res) => {
+    try {
+        const { guildId } = req.params;
+        const discordService = discordController.getDiscordService();
+        const client = (discordService as any).client;
+
+        const guild = client.guilds.cache.get(guildId);
+        if (!guild) {
+            return res.status(404).json({ error: "Guild not found" });
+        }
+
+        const categories: any[] = [];
+        const uncategorizedChannels: any[] = [];
+
+        guild.channels.cache
+            .filter((c: any) => c.type === 4) // CategoryChannel
+            .sort((a: any, b: any) => a.position - b.position)
+            .forEach((category: any) => {
+                const channelsInCategory = guild.channels.cache
+                    .filter((c: any) => c.parentId === category.id)
+                    .sort((a: any, b: any) => a.position - b.position)
+                    .map((c: any) => ({
+                        id: c.id,
+                        name: c.name,
+                        type:
+                            c.type === 0
+                                ? "Text"
+                                : c.type === 2
+                                  ? "Voice"
+                                  : "Other",
+                        categoryId: category.id,
+                        position: c.position,
+                    }));
+
+                categories.push({
+                    id: category.id,
+                    name: category.name,
+                    channels: Array.from(channelsInCategory),
+                    position: category.position,
+                });
+            });
+
+        guild.channels.cache
+            .filter((c: any) => !c.parentId && c.type !== 4)
+            .sort((a: any, b: any) => a.position - b.position)
+            .forEach((channel: any) => {
+                uncategorizedChannels.push({
+                    id: channel.id,
+                    name: channel.name,
+                    type:
+                        channel.type === 0
+                            ? "Text"
+                            : channel.type === 2
+                              ? "Voice"
+                              : "Other",
+                    position: channel.position,
+                });
+            });
+
+        res.json({ categories, uncategorizedChannels });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get("/api/discord/guilds/:guildId/info", async (req, res) => {
+    try {
+        const { guildId } = req.params;
+        const discordService = discordController.getDiscordService();
+        const info = await discordService.getServerInfo(guildId);
+        res.json({ info });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Health check endpoint
 app.get("/api/health", (req, res) => {
     res.json({

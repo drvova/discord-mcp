@@ -3,10 +3,11 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatArea } from "@/components/ChatArea";
 import { InputArea } from "@/components/InputArea";
-import { Menu } from "lucide-react";
+import { DiscordPanel } from "@/components/DiscordPanel";
+import { Menu, Server } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useConversations, useChat } from "@/hooks";
-import type { Message } from "@/types";
+import { useConversations, useChat, useDiscord } from "@/hooks";
+import type { Message, DiscordChannel } from "@/types";
 
 function App() {
     const {
@@ -21,7 +22,17 @@ function App() {
     } = useConversations();
 
     const { isProcessing, sendMessage } = useChat();
+    const {
+        guilds,
+        selectedGuildId,
+        setSelectedGuildId,
+        channelStructure,
+        loading: discordLoading,
+        refresh: refreshDiscord,
+    } = useDiscord();
+
     const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [discordPanelOpen, setDiscordPanelOpen] = useState(false);
 
     const handleSendMessage = async (message: string) => {
         const userMessage: Message = { role: "user", content: message };
@@ -42,6 +53,25 @@ function App() {
         );
     };
 
+    const handleQuickAction = (action: string, guildId: string) => {
+        const actionMessages: Record<string, string> = {
+            send_message: `Send a message to a channel in this server (${guildId})`,
+            list_channels: `List all channels in this server (${guildId})`,
+            server_info: `Get server information for ${guildId}`,
+            manage: `Show me management options for this server (${guildId})`,
+        };
+
+        const message = actionMessages[action] || action;
+        handleSendMessage(message);
+        setDiscordPanelOpen(false);
+    };
+
+    const handleChannelClick = (channel: DiscordChannel) => {
+        const message = `Tell me about the #${channel.name} channel (ID: ${channel.id})`;
+        handleSendMessage(message);
+        setDiscordPanelOpen(false);
+    };
+
     return (
         <ThemeProvider defaultTheme="dark" storageKey="discord-mcp-theme">
             <div className="flex h-screen overflow-hidden bg-background">
@@ -54,6 +84,14 @@ function App() {
                         <Menu className="h-5 w-5" />
                     </Button>
                     <span className="ml-3 font-semibold">Discord MCP</span>
+                    <div className="flex-1" />
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setDiscordPanelOpen(!discordPanelOpen)}
+                    >
+                        <Server className="h-5 w-5" />
+                    </Button>
                 </div>
 
                 <Sidebar
@@ -82,6 +120,19 @@ function App() {
                         disabled={isProcessing}
                     />
                 </div>
+
+                <DiscordPanel
+                    guilds={guilds}
+                    selectedGuildId={selectedGuildId}
+                    onSelectGuild={setSelectedGuildId}
+                    channelStructure={channelStructure}
+                    loading={discordLoading}
+                    isOpen={discordPanelOpen}
+                    onClose={() => setDiscordPanelOpen(false)}
+                    onQuickAction={handleQuickAction}
+                    onChannelClick={handleChannelClick}
+                    onRefresh={refreshDiscord}
+                />
             </div>
         </ThemeProvider>
     );
