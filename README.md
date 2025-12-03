@@ -4,6 +4,22 @@
 
 A comprehensive Model Context Protocol (MCP) server for Discord API integration, providing powerful Discord bot management capabilities through a standardized interface.
 
+## 🚀 v2.0.0 - Hybrid Architecture
+
+**New in v2.0.0**: MCP + Skill hybrid architecture that reduces token consumption by **88%**!
+
+| Mode | Tools | Token Usage | Description |
+|------|-------|-------------|-------------|
+| **Hybrid (Default)** | 3 | ~2,000 | New streamlined API |
+| Legacy | 93 | ~17,200 | Backward compatible |
+
+### Why Hybrid?
+
+- **88% less tokens**: From ~17,200 to ~2,000 tokens
+- **Better tool selection**: Claude selects tools more accurately with fewer options
+- **Skill documentation**: Progressive disclosure loads only what's needed
+- **Backward compatible**: Use `DISCORD_MCP_LEGACY=true` for old behavior
+
 ## Features
 
 This server provides **93 Discord tools** organized into the following categories:
@@ -100,16 +116,60 @@ Speak (for voice)
 Use with MCP-compatible clients:
 
 ```bash
-# Via stdio
+# Hybrid mode (default, 3 tools) - RECOMMENDED
 npx discord-mcp
+
+# Legacy mode (93 tools)
+DISCORD_MCP_LEGACY=true npx discord-mcp
 
 # Via HTTP (port 3001)
 HTTP_PORT=3001 npx discord-mcp
 ```
 
-### Examples
+### Hybrid Mode Examples (v2.0.0+)
 
-#### Using the Master Control Tool
+The new hybrid architecture uses just 3 core tools:
+
+| Tool | Purpose |
+|------|---------|
+| `discord_execute` | Execute operations (send, create, edit, delete) |
+| `discord_query` | Query data (messages, channels, members, roles) |
+| `discord_batch` | Execute multiple operations atomically |
+
+```typescript
+// Send a message
+await discord_execute({
+  operation: "message",
+  action: "send",
+  params: { channelId: "123", content: "Hello World!" }
+});
+
+// Create a channel
+await discord_execute({
+  operation: "channel",
+  action: "create",
+  params: { name: "new-channel", type: "text" }
+});
+
+// Query members
+await discord_query({
+  resource: "members",
+  filters: { guildId: "456" },
+  limit: 100
+});
+
+// Batch operations
+await discord_batch({
+  operations: [
+    { operation: "channel", action: "create", params: { name: "announcements", type: "text" } },
+    { operation: "role", action: "create", params: { name: "Member", color: "#5865F2" } }
+  ]
+});
+```
+
+### Legacy Mode Examples
+
+For backward compatibility, use `DISCORD_MCP_LEGACY=true`:
 
 ```typescript
 // All operations through one unified interface
@@ -136,7 +196,7 @@ await discord_manage({
 });
 ```
 
-#### Using Individual Tools
+#### Using Individual Tools (Legacy)
 
 ```typescript
 // Server information
@@ -183,8 +243,37 @@ await discord.exportChatLog(channelId, "JSON", {
 
 ## Tool Reference
 
+### Hybrid Mode Tools (v2.0.0+)
+
+| Tool | Description | Example |
+|------|-------------|---------|
+| `discord_execute` | Execute any Discord operation | `{operation: "message", action: "send", params: {...}}` |
+| `discord_query` | Query Discord data | `{resource: "members", filters: {...}}` |
+| `discord_batch` | Execute multiple operations | `{operations: [...]}` |
+| `discord_help` | Get help on operations | `{operation: "channel"}` |
+
+**Available Operations:**
+- `message` - Send, edit, delete, react to messages
+- `dm` - Direct message operations
+- `channel` - Create, edit, organize channels
+- `category` - Manage channel categories
+- `role` - Role management
+- `member` - Member management
+- `server` - Server settings
+- `voice` - Voice channels and audio
+- `moderation` - Auto-mod and security
+- `webhook` - Webhook management
+- `event` - Server events
+- `emoji` / `sticker` - Custom emoji and stickers
+- `invite` - Invite links
+- `file` - File operations
+- `interactive` - Embeds, buttons, menus
+- `analytics` - Stats and exports
+
+For detailed documentation, see [discord-skill/](discord-skill/) folder.
+
 <details>
-<summary>Complete Tool List (93 Tools)</summary>
+<summary>Legacy Mode - Complete Tool List (93 Tools)</summary>
 
 ### Message Management Tools (18)
 
