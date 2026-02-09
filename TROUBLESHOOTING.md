@@ -99,6 +99,9 @@ docker run -it --rm \
 |----------|----------|-------------|
 | `DISCORD_TOKEN` | Yes | Your Discord bot token |
 | `DISCORD_GUILD_ID` | No | Default Discord server ID |
+| `DISCORD_CLIENT_ID` | HTTP OAuth | Discord application client ID for install URL generation |
+| `DISCORD_CLIENT_SECRET` | HTTP OAuth | Discord application client secret for callback token exchange |
+| `DISCORD_OAUTH_REDIRECT_URI` | HTTP OAuth | Must match Discord Developer Portal OAuth2 redirect URI |
 | `NODE_ENV` | No | Set to 'production' for optimized performance |
 
 ### 7. Network Requirements
@@ -114,4 +117,4 @@ docker run -it --rm \
 - Graceful shutdown: 10-second timeout
 - Restart policy: Unless stopped
 
-If you continue experiencing issues, please check the container logs and ensure your Discord bot has the required permissions and intents enabled.
+If you continue experiencing issues, please check the container logs and ensure your Discord bot has the required permissions, intents, and OAuth settings enabled.

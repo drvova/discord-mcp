@@ -131,6 +131,10 @@ export class DiscordService {
         return { ...this.currentAuthConfig };
     }
 
+    getBotApplicationId(): string | undefined {
+        return this.client.user?.id;
+    }
+
     async initialize(): Promise<void> {
         const token = this.currentAuthConfig.token;
         if (!token) {

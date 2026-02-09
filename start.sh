@@ -24,4 +24,4 @@ else
     echo "Starting Discord MCP server on stdio..." >&2
 fi
 
-exec node dist/index.js
+exec node dist/src/index.js

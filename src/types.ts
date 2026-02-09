@@ -230,6 +230,17 @@ export const GetInvitesSchema = z.object({
     guildId: z.string().describe("Discord server ID"),
 });
 
+export const CreateBotInviteLinkSchema = z.object({
+    guildId: z
+        .string()
+        .optional()
+        .describe("Optional server ID to pre-select during bot install"),
+    disableGuildSelect: z
+        .boolean()
+        .optional()
+        .describe("Disable guild selector in the Discord OAuth install dialog"),
+});
+
 // Enhanced Emoji & Sticker Schemas
 export const CreateEmojiSchema = z.object({
     guildId: z.string().describe("Discord server ID"),
