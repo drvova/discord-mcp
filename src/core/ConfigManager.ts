@@ -16,6 +16,16 @@ export interface AutomationConfig {
     auth?: AuthConfig;
 }
 
+export const DEFAULT_DISCORD_INTENTS: string[] = [
+    "Guilds",
+    "GuildMessages",
+    "DirectMessages",
+    "GuildVoiceStates",
+    "GuildModeration",
+    "GuildMessageReactions",
+    "DirectMessageReactions",
+];
+
 export class ConfigManager {
     private static instance: ConfigManager;
     private config: AutomationConfig;
@@ -32,6 +42,10 @@ export class ConfigManager {
     }
 
     private loadConfig(): AutomationConfig {
+        const configuredIntents = process.env.DISCORD_INTENTS?.split(",")
+            .map((i) => i.trim())
+            .filter((i) => i.length > 0);
+
         const authConfig: AuthConfig = {
             tokenType:
                 (process.env.DISCORD_TOKEN_TYPE as "bot" | "user") || "bot",
@@ -39,17 +53,10 @@ export class ConfigManager {
                 process.env.DISCORD_TOKEN ||
                 process.env.DISCORD_USER_TOKEN ||
                 "",
-            intents: process.env.DISCORD_INTENTS?.split(",").map((i) =>
-                i.trim(),
-            ) || [
-                "Guilds",
-                "GuildMembers",
-                "GuildMessages",
-                "MessageContent",
-                "DirectMessages",
-                "GuildVoiceStates",
-                "GuildModeration",
-            ],
+            intents:
+                configuredIntents && configuredIntents.length > 0
+                    ? configuredIntents
+                    : [...DEFAULT_DISCORD_INTENTS],
         };
 
         return {

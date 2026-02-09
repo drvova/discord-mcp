@@ -2,6 +2,7 @@
 import { z } from "zod";
 import { Partials } from "discord.js";
 import { AuthConfigSchema, SwitchTokenSchema } from "./types.js";
+import { DEFAULT_DISCORD_INTENTS } from "./core/ConfigManager.js";
 import {
     // Core client and guild types
     Client,
@@ -91,20 +92,19 @@ export class DiscordService {
     private currentAuthConfig: z.infer<typeof AuthConfigSchema>;
 
     constructor(authConfig?: z.infer<typeof AuthConfigSchema>) {
+        const resolvedIntents =
+            authConfig?.intents && authConfig.intents.length > 0
+                ? [...authConfig.intents]
+                : [...DEFAULT_DISCORD_INTENTS];
+
         // Default to bot token if no config provided
-        this.currentAuthConfig = authConfig || {
-            tokenType: "bot",
-            token: process.env.DISCORD_TOKEN || "",
-            intents: [
-                "Guilds",
-                "GuildMembers",
-                "GuildMessages",
-                "MessageContent",
-                "DirectMessages",
-                "GuildVoiceStates",
-                "GuildModeration",
-            ],
-        };
+        this.currentAuthConfig = authConfig
+            ? { ...authConfig, intents: resolvedIntents }
+            : {
+                  tokenType: "bot",
+                  token: process.env.DISCORD_TOKEN || "",
+                  intents: resolvedIntents,
+              };
 
         const intents = this.getIntentsForConfig(
             this.currentAuthConfig.intents,
@@ -178,7 +178,21 @@ export class DiscordService {
                 console.error("Discord client error:", error);
             });
 
-            this.client.login(token).catch(reject);
+            this.client.login(token).catch((error) => {
+                if (
+                    error instanceof Error &&
+                    error.message.includes("Used disallowed intents")
+                ) {
+                    reject(
+                        new Error(
+                            "Used disallowed intents. Remove privileged intents from DISCORD_INTENTS (GuildMembers, MessageContent, GuildPresences), or enable them in Discord Developer Portal -> Bot -> Privileged Gateway Intents.",
+                        ),
+                    );
+                    return;
+                }
+
+                reject(error);
+            });
         });
     }
 
@@ -291,9 +305,16 @@ export class DiscordService {
             DirectMessageReactions: GatewayIntentBits.DirectMessageReactions,
         };
 
-        return (intentNames || [])
+        const normalizedIntents =
+            intentNames && intentNames.length > 0
+                ? intentNames
+                : DEFAULT_DISCORD_INTENTS;
+
+        const resolvedIntents = normalizedIntents
             .map((name) => intentMap[name])
             .filter(Boolean) as GatewayIntentBits[];
+
+        return Array.from(new Set(resolvedIntents));
     }
 
     private validateUserTokenOperation(operationName: string): void {
