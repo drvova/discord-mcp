@@ -78,6 +78,16 @@ DISCORD_TOKEN=your_bot_token_here
 
 # Default Discord server ID (optional)
 DISCORD_GUILD_ID=your_guild_id_here
+
+# OAuth install/callback flow (required for automatic admin invite in HTTP mode)
+DISCORD_CLIENT_ID=your_discord_application_client_id
+DISCORD_CLIENT_SECRET=your_discord_application_client_secret
+DISCORD_OAUTH_REDIRECT_URI=http://localhost:3001/oauth/discord/callback
+
+# Optional OAuth settings
+# DISCORD_OAUTH_DEFAULT_GUILD_ID=your_guild_id_here
+# DISCORD_OAUTH_STATE_TTL_SECONDS=600
+# DISCORD_OAUTH_STORE_PATH=./data/oauth-sessions.json
 ```
 
 ### Required Bot Permissions
@@ -103,6 +113,11 @@ Run the MCP server over HTTP/SSE (useful for `mcp-remote` and browser-based MCP 
 # Start HTTP transport on port 3001
 npm run web
 ```
+
+On startup in HTTP mode, the server now prints an automatic Discord bot install link
+with Administrator permissions and enables OAuth endpoints:
+- `GET /oauth/discord/start`
+- `GET /oauth/discord/callback`
 
 ### MCP Integration
 
@@ -305,7 +320,7 @@ await discord.exportChatLog(channelId, "JSON", {
 | `delete_sticker` | Delete custom stickers |
 | `get_stickers` | List all server stickers |
 
-### Privacy & Security Tools (7)
+### Privacy & Security Tools (8)
 
 | Tool Name | Description |
 |-----------|-------------|
@@ -316,6 +331,7 @@ await discord.exportChatLog(channelId, "JSON", {
 | `create_invite` | Create server invites |
 | `delete_invite` | Delete/revoke invites |
 | `get_invites` | List all server invites |
+| `create_bot_invite_link` | Generate admin bot install OAuth link |
 
 ### Server Administration Tools (6)
 

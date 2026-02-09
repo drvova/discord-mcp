@@ -14,4 +14,4 @@ startCommand:
         description: Optional default Discord server ID.
   commandFunction:
     |-
-    config => ({command: 'node', args: ['./dist/index.js'], env: {DISCORD_TOKEN: config.discordToken, DISCORD_GUILD_ID: config.discordGuildId}})
+    config => ({command: 'node', args: ['./dist/src/index.js'], env: {DISCORD_TOKEN: config.discordToken, DISCORD_GUILD_ID: config.discordGuildId}})

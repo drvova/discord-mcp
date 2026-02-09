@@ -11,6 +11,7 @@ import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { DiscordService } from "./discord-service.js";
 import { AutomationManager } from "./core/AutomationManager.js";
 import { DiscordController } from "./core/DiscordController.js";
+import { OAuthManager } from "./core/OAuthManager.js";
 import * as schemas from "./types.js";
 
 const server = new Server(
@@ -28,6 +29,47 @@ const server = new Server(
 let discordService: DiscordService;
 let automationManager: AutomationManager;
 let discordController: DiscordController;
+let oauthManager: OAuthManager | null = null;
+
+function getOAuthManager(): OAuthManager {
+    if (!oauthManager) {
+        throw new Error(
+            "OAuth manager is not initialized.",
+        );
+    }
+    return oauthManager;
+}
+
+async function createBotInviteLinkText(
+    guildId?: string,
+    disableGuildSelect?: boolean,
+): Promise<string> {
+    const auth = await getOAuthManager().createAuthorizeLink({
+        guildId,
+        disableGuildSelect,
+    });
+
+    return `Discord bot install URL (Administrator):
+${auth.authorizeUrl}
+- Permissions: Administrator (bit 8)
+- Scopes: ${auth.scopes.join(", ")}
+- Expires: ${auth.expiresAt}`;
+}
+
+function parseBooleanQuery(value: string | null): boolean | undefined {
+    if (value === null) {
+        return undefined;
+    }
+
+    const normalized = value.toLowerCase();
+    if (normalized === "true" || normalized === "1" || normalized === "yes") {
+        return true;
+    }
+    if (normalized === "false" || normalized === "0" || normalized === "no") {
+        return false;
+    }
+    return undefined;
+}
 
 // Initialize Discord service
 async function initializeDiscord() {
@@ -117,6 +159,7 @@ const getAllTools = () => [
                         "create_invite",
                         "delete_invite",
                         "get_invites",
+                        "create_bot_invite_link",
                         "create_emoji",
                         "delete_emoji",
                         "get_emojis",
@@ -1611,6 +1654,26 @@ const getAllTools = () => [
             required: [],
         },
     },
+    {
+        name: "create_bot_invite_link",
+        description:
+            "Generate a Discord OAuth bot install link with Administrator permission",
+        inputSchema: {
+            type: "object",
+            properties: {
+                guildId: {
+                    type: "string",
+                    description: "Optional guild ID to pre-select in OAuth flow",
+                },
+                disableGuildSelect: {
+                    type: "boolean",
+                    description:
+                        "If true, disables guild selector in OAuth install dialog",
+                },
+            },
+            required: [],
+        },
+    },
 
     // Enhanced Emoji & Sticker Tools
     {
@@ -2685,6 +2748,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                         );
                         return { content: [{ type: "text", text: result }] };
                     }
+                    case "create_bot_invite_link": {
+                        const parsed =
+                            schemas.CreateBotInviteLinkSchema.parse(params);
+                        const result = await createBotInviteLinkText(
+                            parsed.guildId,
+                            parsed.disableGuildSelect,
+                        );
+                        return { content: [{ type: "text", text: result }] };
+                    }
                     // Note: For brevity, I'm including key actions here. In production,
                     // all 109+ actions would be mapped following the same pattern
                     default:
@@ -3328,6 +3400,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 return { content: [{ type: "text", text: result }] };
             }
 
+            case "create_bot_invite_link": {
+                const parsed = schemas.CreateBotInviteLinkSchema.parse(args);
+                const result = await createBotInviteLinkText(
+                    parsed.guildId,
+                    parsed.disableGuildSelect,
+                );
+                return { content: [{ type: "text", text: result }] };
+            }
+
             // Enhanced Emoji & Sticker Tools
             case "create_emoji": {
                 const parsed = schemas.CreateEmojiSchema.parse(args);
@@ -3659,6 +3740,38 @@ async function main() {
 
         // Check if we should use HTTP transport
         const useHttp = process.env.MCP_HTTP_PORT || process.env.PORT;
+        const config = discordController.getConfigManager().getConfig();
+        const oauthClientId =
+            config.oauth.clientId || discordService.getBotApplicationId();
+
+        oauthManager = new OAuthManager({
+            ...config.oauth,
+            clientId: oauthClientId,
+        });
+
+        if (useHttp) {
+            const missingOAuthConfig =
+                oauthManager.getMissingFullFlowConfigFields();
+            if (missingOAuthConfig.length > 0) {
+                throw new Error(
+                    `Missing OAuth configuration for startup callback flow: ${missingOAuthConfig.join(", ")}`,
+                );
+            }
+
+            const startupInvite = await oauthManager.createAuthorizeLink({
+                guildId: config.oauth.defaultGuildId,
+            });
+            console.error(
+                `Discord bot install URL (Administrator): ${startupInvite.authorizeUrl}`,
+            );
+            console.error(
+                `OAuth callback URI: ${config.oauth.redirectUri}`,
+            );
+        } else {
+            console.error(
+                "OAuth startup install link skipped: HTTP mode is disabled (set MCP_HTTP_PORT to enable callback flow).",
+            );
+        }
 
         if (useHttp) {
             // Start HTTP server
@@ -4691,6 +4804,18 @@ async function main() {
                                                     );
                                                 break;
                                             }
+                                            case "create_bot_invite_link": {
+                                                const parsed =
+                                                    schemas.CreateBotInviteLinkSchema.parse(
+                                                        args,
+                                                    );
+                                                result =
+                                                    await createBotInviteLinkText(
+                                                        parsed.guildId,
+                                                        parsed.disableGuildSelect,
+                                                    );
+                                                break;
+                                            }
 
                                             // Enhanced Emoji & Sticker Tools
                                             case "create_emoji": {
@@ -5181,6 +5306,95 @@ async function main() {
                                 activeConnections: activeTransports.size,
                             }),
                         );
+                    } else if (
+                        url.pathname === "/oauth/discord/start" &&
+                        req.method === "GET"
+                    ) {
+                        try {
+                            const disableGuildSelect = parseBooleanQuery(
+                                url.searchParams.get("disableGuildSelect"),
+                            );
+                            const auth = await getOAuthManager().createAuthorizeLink(
+                                {
+                                    guildId:
+                                        url.searchParams.get("guildId") ||
+                                        undefined,
+                                    disableGuildSelect,
+                                },
+                            );
+
+                            res.writeHead(200, {
+                                "Content-Type": "application/json",
+                            });
+                            res.end(
+                                JSON.stringify({
+                                    authorizeUrl: auth.authorizeUrl,
+                                    expiresAt: auth.expiresAt,
+                                    scopes: auth.scopes,
+                                    permissions: auth.permissions,
+                                }),
+                            );
+                        } catch (error) {
+                            res.writeHead(500, {
+                                "Content-Type": "application/json",
+                            });
+                            res.end(
+                                JSON.stringify({
+                                    error:
+                                        error instanceof Error
+                                            ? error.message
+                                            : String(error),
+                                }),
+                            );
+                        }
+                    } else if (
+                        url.pathname === "/oauth/discord/callback" &&
+                        req.method === "GET"
+                    ) {
+                        const code = url.searchParams.get("code");
+                        const state = url.searchParams.get("state");
+
+                        if (!code || !state) {
+                            res.writeHead(400, {
+                                "Content-Type": "application/json",
+                            });
+                            res.end(
+                                JSON.stringify({
+                                    error: "OAuth callback requires code and state query parameters",
+                                }),
+                            );
+                            return;
+                        }
+
+                        try {
+                            const callbackResult =
+                                await getOAuthManager().completeCallback(
+                                    code,
+                                    state,
+                                );
+
+                            res.writeHead(200, {
+                                "Content-Type": "application/json",
+                            });
+                            res.end(
+                                JSON.stringify({
+                                    status: "ok",
+                                    ...callbackResult,
+                                }),
+                            );
+                        } catch (error) {
+                            const message =
+                                error instanceof Error
+                                    ? error.message
+                                    : String(error);
+                            const isBadRequest =
+                                message.includes("state") ||
+                                message.includes("requires both code and state");
+                            res.writeHead(isBadRequest ? 400 : 502, {
+                                "Content-Type": "application/json",
+                            });
+                            res.end(JSON.stringify({ error: message }));
+                        }
                     } else {
                         // Default response with mcp-remote instructions
                         res.writeHead(200, { "Content-Type": "text/plain" });
@@ -5193,6 +5407,8 @@ Endpoints:
 - GET /sse - SSE connection
 - POST /message - Message handling
 - GET /health - Health check
+- GET /oauth/discord/start - Generate OAuth install URL
+- GET /oauth/discord/callback - OAuth callback handler
 
 Active connections: ${activeTransports.size}`);
                     }
@@ -5210,6 +5426,12 @@ Active connections: ${activeTransports.size}`);
                 );
                 console.error(`SSE endpoint: http://localhost:${port}/sse`);
                 console.error(`Health check: http://localhost:${port}/health`);
+                console.error(
+                    `OAuth start: http://localhost:${port}/oauth/discord/start`,
+                );
+                console.error(
+                    `OAuth callback: http://localhost:${port}/oauth/discord/callback`,
+                );
             });
         } else {
             // Start stdio server (default)

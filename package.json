@@ -2,17 +2,17 @@
     "name": "discord-mcp",
     "version": "0.0.1",
     "description": "Model Context Protocol (MCP) server for Discord API integration",
-    "main": "dist/index.js",
+    "main": "dist/src/index.js",
     "type": "module",
     "bin": {
-        "discord-mcp": "./dist/index.js"
+        "discord-mcp": "./dist/src/index.js"
     },
     "scripts": {
         "build": "tsc",
         "dev": "tsx src/index.ts",
-        "start": "node dist/index.js",
+        "start": "node dist/src/index.js",
         "web": "MCP_HTTP_PORT=3001 tsx src/index.ts",
-        "web:build": "npm run build && MCP_HTTP_PORT=3001 node dist/index.js",
+        "web:build": "npm run build && MCP_HTTP_PORT=3001 node dist/src/index.js",
         "prepare": "npm run build"
     },
     "repository": {

@@ -4,6 +4,15 @@ export interface AuthConfig {
     intents?: string[];
 }
 
+export interface OAuthConfig {
+    clientId?: string;
+    clientSecret?: string;
+    redirectUri?: string;
+    stateTtlSeconds: number;
+    storePath: string;
+    defaultGuildId?: string;
+}
+
 export interface AutomationConfig {
     defaultGuildId?: string;
     enableLogging: boolean;
@@ -14,6 +23,7 @@ export interface AutomationConfig {
     allowedActions: string[];
     deniedActions: string[];
     auth?: AuthConfig;
+    oauth: OAuthConfig;
 }
 
 export const DEFAULT_DISCORD_INTENTS: string[] = [
@@ -45,6 +55,10 @@ export class ConfigManager {
         const configuredIntents = process.env.DISCORD_INTENTS?.split(",")
             .map((i) => i.trim())
             .filter((i) => i.length > 0);
+        const configuredStateTtlSeconds = parseInt(
+            process.env.DISCORD_OAUTH_STATE_TTL_SECONDS || "600",
+            10,
+        );
 
         const authConfig: AuthConfig = {
             tokenType:
@@ -59,6 +73,19 @@ export class ConfigManager {
                     : [...DEFAULT_DISCORD_INTENTS],
         };
 
+        const oauthConfig: OAuthConfig = {
+            clientId: process.env.DISCORD_CLIENT_ID,
+            clientSecret: process.env.DISCORD_CLIENT_SECRET,
+            redirectUri: process.env.DISCORD_OAUTH_REDIRECT_URI,
+            stateTtlSeconds: Number.isFinite(configuredStateTtlSeconds)
+                ? Math.max(60, configuredStateTtlSeconds)
+                : 600,
+            storePath:
+                process.env.DISCORD_OAUTH_STORE_PATH ||
+                "./data/oauth-sessions.json",
+            defaultGuildId: process.env.DISCORD_OAUTH_DEFAULT_GUILD_ID,
+        };
+
         return {
             defaultGuildId: process.env.DISCORD_GUILD_ID,
             enableLogging: process.env.ENABLE_LOGGING === "true",
@@ -69,6 +96,7 @@ export class ConfigManager {
             allowedActions: this.parseActionList(process.env.ALLOWED_ACTIONS),
             deniedActions: this.parseActionList(process.env.DENIED_ACTIONS),
             auth: authConfig,
+            oauth: oauthConfig,
         };
     }
 
