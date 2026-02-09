@@ -95,38 +95,13 @@ Speak (for voice)
 
 ## Usage
 
-### Web UI (Recommended for Beginners)
+### HTTP Mode (Optional)
 
-The Discord MCP comes with a beautiful ChatGPT-style web interface:
+Run the MCP server over HTTP/SSE (useful for `mcp-remote` and browser-based MCP clients):
 
 ```bash
-# Run both backend and frontend together (recommended)
-npm run dev:fullstack
-
-# Or run separately:
-# Terminal 1 - Backend
+# Start HTTP transport on port 3001
 npm run web
-
-# Terminal 2 - Frontend
-npm run webui:dev
-```
-
-Open **http://localhost:3001** in your browser to access the web interface.
-
-**Features:**
-- 🎨 ChatGPT-inspired UI with dark/light mode
-- 💬 Natural language Discord commands
-- 📱 Fully responsive mobile design
-- 💾 Conversation history
-- 🔧 Real-time tool execution display
-
-**Production Build:**
-```bash
-# Build everything
-npm run build:all
-
-# Preview production build
-cd webui && npm run preview
 ```
 
 ### MCP Integration
@@ -138,7 +113,7 @@ Use with MCP-compatible clients:
 npx discord-mcp
 
 # Via HTTP (port 3001)
-HTTP_PORT=3001 npx discord-mcp
+MCP_HTTP_PORT=3001 npx discord-mcp
 ```
 
 ### Examples

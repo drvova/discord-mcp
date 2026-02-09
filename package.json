@@ -9,14 +9,10 @@
     },
     "scripts": {
         "build": "tsc",
-        "build:all": "npm run build && npm run webui:build",
         "dev": "tsx src/index.ts",
         "start": "node dist/index.js",
-        "web": "tsx webui/src/web-server.ts",
-        "web:build": "npm run build && node dist/webui/src/web-server.js",
-        "webui:dev": "npm --prefix webui run dev",
-        "webui:build": "npm --prefix webui run build",
-        "dev:fullstack": "concurrently --names \"BACKEND,FRONTEND\" --prefix-colors \"bgBlue.bold,bgMagenta.bold\" \"npm run web\" \"npm run webui:dev\"",
+        "web": "MCP_HTTP_PORT=3001 tsx src/index.ts",
+        "web:build": "npm run build && MCP_HTTP_PORT=3001 node dist/index.js",
         "prepare": "npm run build"
     },
     "repository": {

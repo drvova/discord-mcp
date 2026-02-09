@@ -7,12 +7,11 @@ import {
     CallToolRequestSchema,
     ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { DiscordService } from "./discord-service.js";
 import { AutomationManager } from "./core/AutomationManager.js";
 import { DiscordController } from "./core/DiscordController.js";
 import * as schemas from "./types.js";
-import { createServer } from "node:http";
-import { URL } from "node:url";
 
 const server = new Server(
     {
@@ -3668,7 +3667,8 @@ async function main() {
             // Map to store active transports by session ID
             const activeTransports = new Map();
 
-            const httpServer = createServer(async (req, res) => {
+            const httpServer = createServer(
+                async (req: IncomingMessage, res: ServerResponse) => {
                 const url = new URL(
                     req.url || "/",
                     `http://${req.headers.host}`,
@@ -3700,7 +3700,7 @@ async function main() {
                     ) {
                         // Handle JSON-RPC over HTTP (mcp-remote style)
                         let body = "";
-                        req.on("data", (chunk) => {
+                        req.on("data", (chunk: Buffer) => {
                             body += chunk.toString();
                         });
 
@@ -5122,7 +5122,7 @@ async function main() {
                     ) {
                         // Handle POST messages from mcp-remote
                         let body = "";
-                        req.on("data", (chunk) => {
+                        req.on("data", (chunk: Buffer) => {
                             body += chunk.toString();
                         });
 
@@ -5201,7 +5201,8 @@ Active connections: ${activeTransports.size}`);
                     res.writeHead(500, { "Content-Type": "application/json" });
                     res.end(JSON.stringify({ error: "Internal server error" }));
                 }
-            });
+                },
+            );
 
             httpServer.listen(port, () => {
                 console.error(
