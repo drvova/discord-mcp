@@ -6,28 +6,26 @@ A comprehensive Model Context Protocol (MCP) server for Discord API integration,
 
 ## Features
 
-This server provides **93 Discord tools** organized into the following categories:
+This server provides **1 MCP tool (`discord_manage`)** with **93 Discord actions** organized into the following categories:
 
-| Category | Tools Count | Description |
+| Category | Actions Count | Description |
 |----------|-------------|-------------|
-| Message Management | 18 tools | Send, edit, delete, reactions, pin, bulk operations |
-| Channel Management | 25 tools | Create/edit/delete all channel types, positions, privacy |
-| Member & Role Management | 12 tools | Add/remove roles, edit members, search, info retrieval |
-| Voice & Audio | 6 tools | Join/leave voice, play audio, volume control |
-| Webhooks | 4 tools | Create, delete, list, send webhook messages |
-| Events & Scheduling | 4 tools | Create, edit, delete, list server events |
-| Emoji & Stickers | 6 tools | Manage custom emojis and stickers |
-| Privacy & Security | 7 tools | Auto-moderation, privacy controls, bulk settings |
-| Server Administration | 6 tools | Server settings, welcome screen, widget management |
-| Analytics & Export | 5 tools | Statistics, message history, chat log export |
+| Message Management | 18 actions | Send, edit, delete, reactions, pin, bulk operations |
+| Channel Management | 25 actions | Create/edit/delete all channel types, positions, privacy |
+| Member & Role Management | 12 actions | Add/remove roles, edit members, search, info retrieval |
+| Voice & Audio | 6 actions | Join/leave voice, play audio, volume control |
+| Webhooks | 4 actions | Create, delete, list, send webhook messages |
+| Events & Scheduling | 4 actions | Create, edit, delete, list server events |
+| Emoji & Stickers | 6 actions | Manage custom emojis and stickers |
+| Privacy & Security | 7 actions | Auto-moderation, privacy controls, bulk settings |
+| Server Administration | 6 actions | Server settings, welcome screen, widget management |
+| Analytics & Export | 5 actions | Statistics, message history, chat log export |
 
-### Key Tools
+### Key Interface
 
-- **`discord_manage`** - Unified tool that handles all 93 operations through one interface
-- **`comprehensive_channel_management`** - Multi-operation channel orchestrator
-- **`bulk_set_privacy`** - Mass privacy control across channels/categories
-- **`organize_channels`** - Advanced channel/category positioning system
-- **`export_chat_log`** - Professional chat export in JSON/CSV/TXT formats
+- **`discord_manage`** - Unified tool that handles all 93 actions through one interface
+- **Gateway contract** - `mode` + `identityId` + `method` + `operation` + (`params` or `args`)
+- **Domain methods (12)** - `server.read`, `server.write`, `channels.read`, `channels.write`, `messages.read`, `messages.write`, `members.read`, `members.write`, `roles.read`, `roles.write`, `automation.read`, `automation.write`
 
 ## Quick Start
 
@@ -76,8 +74,24 @@ Create a `.env` file:
 # Your Discord bot token (KEEP SECRET!)
 DISCORD_TOKEN=your_bot_token_here
 
+# Optional user token for user-mode identities
+# DISCORD_USER_TOKEN=your_discord_user_token
+
 # Default Discord server ID (optional)
 DISCORD_GUILD_ID=your_guild_id_here
+
+# Optional gateway identity store encryption key (recommended for persisted identities)
+# Supports raw string, hex, or base64. If omitted, identities remain memory-only.
+# DISCORD_MCP_MASTER_KEY=your_32_byte_key_material
+
+# Optional identity store path
+# DISCORD_MCP_IDENTITY_STORE_PATH=./.discord-mcp-identities.enc
+
+# Optional strict policy override: block all high-risk operations
+# DISCORD_MCP_BLOCK_HIGH_RISK=true
+
+# Optional: also write JSONL audit events to a file (stderr logging is always on)
+# DISCORD_MCP_AUDIT_LOG_PATH=./data/discord-mcp-audit.log
 
 # OAuth install/callback flow (required for automatic admin invite in HTTP mode)
 DISCORD_CLIENT_ID=your_discord_application_client_id
@@ -135,57 +149,45 @@ MCP_HTTP_PORT=3001 npx discord-mcp
 
 #### Using the Master Control Tool
 
+`identityId` defaults to `default-bot` (or `default-user` when `mode: "user"`).
+
 ```typescript
 // All operations through one unified interface
 await discord_manage({
-  action: 'send_message',
-  channelId: '123',
-  message: 'Hello World!'
+  mode: 'bot',
+  identityId: 'default-bot',
+  method: 'messages.write',
+  operation: 'send_message',
+  params: {
+    channelId: '123',
+    message: 'Hello World!',
+  },
 });
 
 await discord_manage({
-  action: 'create_text_channel',
-  guildId: '456',
-  name: 'new-channel'
+  mode: 'bot',
+  identityId: 'default-bot',
+  method: 'channels.write',
+  operation: 'create_text_channel',
+  params: {
+    guildId: '456',
+    name: 'new-channel',
+  },
 });
 
 await discord_manage({
-  action: 'comprehensive_channel_management',
-  guildId: '456',
-  operations: [
-    { action: 'create_category', name: 'New Category' },
-    { action: 'create_text_channel', name: 'general', categoryId: 'cat_id' },
-    { action: 'set_channel_private', channelId: 'chan_id', isPrivate: true }
-  ]
-});
-```
-
-#### Using Individual Tools
-
-```typescript
-// Server information
-await discord.getServerInfo(guildId);
-
-// Advanced channel creation
-await discord.createForumChannel(guildId, "discussions", categoryId, {
-  topic: "Community discussions",
-  slowmode: 30,
-  isPrivate: true,
-  allowedRoles: ["member_role_id"]
-});
-
-// Bulk privacy management
-await discord.bulkSetPrivacy(guildId, {
-  targets: [
-    { id: "channel1", type: "channel", isPrivate: true },
-    { id: "category1", type: "category", isPrivate: false }
-  ]
-});
-
-// Export chat logs
-await discord.exportChatLog(channelId, "JSON", {
-  limit: 1000,
-  dateRange: { start: "2024-01-01", end: "2024-12-31" }
+  mode: 'bot',
+  identityId: 'default-bot',
+  method: 'channels.write',
+  operation: 'comprehensive_channel_management',
+  params: {
+    guildId: '456',
+    operations: [
+      { action: 'create_category', name: 'New Category' },
+      { action: 'create_text_channel', name: 'general', categoryId: 'cat_id' },
+      { action: 'set_channel_private', channelId: 'chan_id', isPrivate: true },
+    ],
+  },
 });
 ```
 
@@ -208,11 +210,11 @@ await discord.exportChatLog(channelId, "JSON", {
 ## Tool Reference
 
 <details>
-<summary>Complete Tool List (93 Tools)</summary>
+<summary>Complete Action List (93 Actions via `discord_manage`)</summary>
 
-### Message Management Tools (18)
+### Message Management Actions (18)
 
-| Tool Name | Description |
+| Action Name | Description |
 |-----------|-------------|
 | `send_message` | Send messages to channels |
 | `edit_message` | Edit existing messages |
@@ -233,9 +235,9 @@ await discord.exportChatLog(channelId, "JSON", {
 | `get_message_attachments` | Extract message attachments |
 | `read_images` | Read and analyze images from messages |
 
-### Channel Management Tools (25)
+### Channel Management Actions (25)
 
-| Tool Name | Description |
+| Action Name | Description |
 |-----------|-------------|
 | `create_text_channel` | Create text channels |
 | `create_voice_channel` | Create voice channels |
@@ -263,9 +265,9 @@ await discord.exportChatLog(channelId, "JSON", {
 | `upload_file` | Upload files to channels |
 | `export_chat_log` | Export chat logs (JSON/CSV/TXT) |
 
-### Member & Role Management Tools (12)
+### Member & Role Management Actions (12)
 
-| Tool Name | Description |
+| Action Name | Description |
 |-----------|-------------|
 | `get_user_id_by_name` | Find user IDs by username |
 | `get_members` | List server members with pagination |
@@ -280,9 +282,9 @@ await discord.exportChatLog(channelId, "JSON", {
 | `get_roles` | List all server roles |
 | `set_role_positions` | Reorder role hierarchy |
 
-### Voice & Audio Tools (6)
+### Voice & Audio Actions (6)
 
-| Tool Name | Description |
+| Action Name | Description |
 |-----------|-------------|
 | `join_voice_channel` | Connect bot to voice channels |
 | `leave_voice_channel` | Disconnect from voice channels |
@@ -291,27 +293,27 @@ await discord.exportChatLog(channelId, "JSON", {
 | `set_volume` | Control audio volume |
 | `get_voice_connections` | List active voice connections |
 
-### Webhook Tools (4)
+### Webhook Actions (4)
 
-| Tool Name | Description |
+| Action Name | Description |
 |-----------|-------------|
 | `create_webhook` | Create channel webhooks |
 | `delete_webhook` | Delete webhooks |
 | `list_webhooks` | List channel webhooks |
 | `send_webhook_message` | Send messages via webhooks |
 
-### Events & Scheduling Tools (4)
+### Events & Scheduling Actions (4)
 
-| Tool Name | Description |
+| Action Name | Description |
 |-----------|-------------|
 | `create_event` | Create scheduled server events |
 | `edit_event` | Edit existing events |
 | `delete_event` | Delete server events |
 | `get_events` | List all scheduled events |
 
-### Emoji & Sticker Tools (6)
+### Emoji & Sticker Actions (6)
 
-| Tool Name | Description |
+| Action Name | Description |
 |-----------|-------------|
 | `create_emoji` | Create custom server emojis |
 | `delete_emoji` | Delete custom emojis |
@@ -320,9 +322,9 @@ await discord.exportChatLog(channelId, "JSON", {
 | `delete_sticker` | Delete custom stickers |
 | `get_stickers` | List all server stickers |
 
-### Privacy & Security Tools (8)
+### Privacy & Security Actions (8)
 
-| Tool Name | Description |
+| Action Name | Description |
 |-----------|-------------|
 | `create_automod_rule` | Create automoderation rules |
 | `edit_automod_rule` | Edit automod rules |
@@ -333,9 +335,9 @@ await discord.exportChatLog(channelId, "JSON", {
 | `get_invites` | List all server invites |
 | `create_bot_invite_link` | Generate admin bot install OAuth link |
 
-### Server Administration Tools (6)
+### Server Administration Actions (6)
 
-| Tool Name | Description |
+| Action Name | Description |
 |-----------|-------------|
 | `get_server_info` | Get comprehensive server information |
 | `edit_server` | Edit server settings |
@@ -344,9 +346,9 @@ await discord.exportChatLog(channelId, "JSON", {
 | `edit_welcome_screen` | Configure welcome screen |
 | `get_server_stats` | Get comprehensive server statistics |
 
-### Interactive Components Tools (4)
+### Interactive Components Actions (4)
 
-| Tool Name | Description |
+| Action Name | Description |
 |-----------|-------------|
 | `send_embed` | Send rich embed messages |
 | `send_button` | Send messages with interactive buttons |
@@ -411,7 +413,7 @@ This software is provided "as-is" without warranty. Users are responsible for:
 
 ## Acknowledgments
 
-- **[@sashathelambo](https://github.com/sashathelambo) (Dr. Vova)** - Project creator, lead developer, and architect of all 93 Discord tools
+- **[@sashathelambo](https://github.com/sashathelambo) (Dr. Vova)** - Project creator, lead developer, and architect of the 93-action Discord control surface
 - Discord.js team for the excellent Discord API wrapper
 - Model Context Protocol community for the standardized protocol
 - Everyone who uses and supports this project

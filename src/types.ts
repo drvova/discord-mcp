@@ -59,6 +59,19 @@ export const SendMessageSchema = z.object({
     message: z.string().describe("Message content"),
 });
 
+export const SendMessageWithEmbedSchema = z.object({
+    channelId: z.string().describe("Discord channel ID"),
+    content: z.string().describe("Message content"),
+    embedUrl: z.string().describe("Embed image URL"),
+    embedTitle: z.string().optional().describe("Optional embed title"),
+});
+
+export const SendStickerSchema = z.object({
+    channelId: z.string().describe("Discord channel ID"),
+    stickerId: z.string().describe("Sticker ID"),
+    content: z.string().optional().describe("Optional message content"),
+});
+
 export const EditMessageSchema = z.object({
     channelId: z.string().describe("Discord channel ID"),
     messageId: z.string().describe("Specific message ID"),
@@ -1140,4 +1153,139 @@ export const GetAuditLogsSchema = z.object({
 
 export const GetBansSchema = z.object({
     guildId: z.string().optional().describe("Discord server ID"),
+});
+
+export const GetDiscordjsSymbolsSchema = z.object({
+    kinds: z
+        .array(
+            z.enum([
+                "class",
+                "enum",
+                "interface",
+                "function",
+                "type",
+                "const",
+                "variable",
+                "event",
+                "namespace",
+                "external",
+            ]),
+        )
+        .optional()
+        .describe("Symbol kinds to include"),
+    query: z
+        .string()
+        .optional()
+        .describe("Case-insensitive symbol name filter"),
+    page: z.number().int().min(1).optional().describe("Page number"),
+    pageSize: z
+        .number()
+        .int()
+        .min(1)
+        .max(200)
+        .optional()
+        .describe("Page size (1-200)"),
+    sort: z
+        .enum(["name_asc", "name_desc"])
+        .optional()
+        .describe("Sort order by symbol name"),
+    includeKindCounts: z
+        .boolean()
+        .optional()
+        .describe("Include aggregated per-kind counts for the filtered result set"),
+});
+
+export const InvokeDiscordjsSymbolContextSchema = z.object({
+    guildId: z.string().optional().describe("Discord server ID"),
+    channelId: z.string().optional().describe("Discord channel ID"),
+    threadId: z.string().optional().describe("Discord thread channel ID"),
+    messageId: z.string().optional().describe("Discord message ID"),
+    userId: z.string().optional().describe("Discord user ID"),
+    memberId: z.string().optional().describe("Discord guild member ID"),
+    roleId: z.string().optional().describe("Discord role ID"),
+    emojiId: z.string().optional().describe("Discord emoji ID"),
+    stickerId: z.string().optional().describe("Discord sticker ID"),
+    eventId: z.string().optional().describe("Discord scheduled event ID"),
+    inviteCode: z.string().optional().describe("Discord invite code"),
+    webhookId: z.string().optional().describe("Discord webhook ID"),
+});
+
+export const InvokeDiscordjsSymbolSchema = z.object({
+    symbol: z
+        .string()
+        .min(1)
+        .describe(
+            "discord.js symbol name (for example: channelMention, Guild#fetch, Client.login)",
+        ),
+    kind: z
+        .enum([
+            "class",
+            "enum",
+            "interface",
+            "function",
+            "type",
+            "const",
+            "variable",
+            "event",
+            "namespace",
+            "external",
+        ])
+        .optional()
+        .describe("Optional symbol kind disambiguation"),
+    invoke: z
+        .boolean()
+        .optional()
+        .describe("Invoke callable symbols when true (defaults to true)"),
+    args: z
+        .array(z.unknown())
+        .optional()
+        .describe("Positional arguments for invocation"),
+    target: z
+        .enum([
+            "auto",
+            "client",
+            "guild",
+            "channel",
+            "thread",
+            "message",
+            "user",
+            "member",
+            "role",
+            "emoji",
+            "sticker",
+            "event",
+            "invite",
+            "webhook",
+            "guild_manager",
+            "channel_manager",
+            "user_manager",
+            "member_manager",
+            "role_manager",
+            "emoji_manager",
+            "sticker_manager",
+            "scheduled_event_manager",
+            "message_manager",
+            "thread_manager",
+            "application_command_manager",
+            "application_emoji_manager",
+        ])
+        .optional()
+        .describe("Explicit invocation target resolver"),
+    context: InvokeDiscordjsSymbolContextSchema.optional(),
+    dryRun: z
+        .boolean()
+        .optional()
+        .describe(
+            "Resolve symbol target and policy without executing the invocation",
+        ),
+    allowWrite: z
+        .boolean()
+        .optional()
+        .describe(
+            "Required for write/admin/dangerous dynamic symbol invocations",
+        ),
+    policyMode: z
+        .enum(["strict", "permissive"])
+        .optional()
+        .describe("Invocation policy mode (strict by default)"),
 });
