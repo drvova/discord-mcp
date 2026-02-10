@@ -34,7 +34,7 @@
     "dependencies": {
         "@discordjs/opus": "^0.10.0",
         "@discordjs/voice": "^0.18.0",
-        "@modelcontextprotocol/sdk": "^1.16.0",
+        "@modelcontextprotocol/sdk": "^1.26.0",
         "@types/cors": "^2.8.19",
         "@types/express": "^5.0.5",
         "cors": "^2.8.5",
