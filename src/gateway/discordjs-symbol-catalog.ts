@@ -373,9 +373,47 @@ function isClassConstructor(value: unknown): value is new (...args: unknown[]) =
     return source.startsWith("class ");
 }
 
+function isEnumLikeRuntimeExport(value: unknown): boolean {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return false;
+    }
+
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) {
+        return false;
+    }
+
+    let hasNamedKey = false;
+    for (const [key, candidate] of entries) {
+        const keyIsNumeric = /^\d+$/.test(key);
+        if (!keyIsNumeric) {
+            hasNamedKey = true;
+        }
+
+        if (
+            typeof candidate !== "string" &&
+            typeof candidate !== "number" &&
+            typeof candidate !== "bigint"
+        ) {
+            return false;
+        }
+
+        // Numeric keys are only expected for reverse enum mapping.
+        if (keyIsNumeric && typeof candidate !== "string") {
+            return false;
+        }
+    }
+
+    return hasNamedKey;
+}
+
 function runtimeKindForValue(value: unknown): DiscordJsSymbolKind | null {
     if (typeof value === "function") {
         return isClassConstructor(value) ? "class" : "function";
+    }
+
+    if (isEnumLikeRuntimeExport(value)) {
+        return "enum";
     }
 
     if (value !== undefined) {

@@ -1,6 +1,6 @@
 # Discord MCP Server
 
-> **⚠️ Security Notice**: This project handles Discord credentials and privileged Discord operations. Review `SECURITY.md` before use.
+> **⚠️ Security Notice**: This project handles Discord credentials and privileged Discord operations. Treat all tokens and secrets as sensitive.
 
 Discord MCP Server exposes Discord.js through one MCP tool with a dynamic symbol router.
 
@@ -30,6 +30,10 @@ This repository now uses the **dynamic Discord.js routing architecture**:
 - `params` or `args`
 
 Dynamic `discordjs.*` operations are validated under `automation.write`.
+
+Runtime kind behavior:
+- Dynamic `enum` symbols are discovered directly from Discord.js runtime exports.
+- `interface`, `type`, `namespace`, and `external` remain accepted for compatibility, but may return empty results in runtime-only discovery mode.
 
 ## Branch Model
 
@@ -169,6 +173,7 @@ If you expect thousands of operations in the MCP registry, this is by design:
 - The MCP registry exposes **few static operations**.
 - Discord.js breadth is exposed through **dynamic symbol routing** (`discordjs.<kind>.<symbol>`).
 - Use `get_discordjs_symbols` to discover available symbols and operation keys.
+- Runtime discovery includes `enum` exports (for example `ChannelType`, `ActivityType`).
 
 ## Security Guidance
 
