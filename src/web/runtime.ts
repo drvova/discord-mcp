@@ -226,6 +226,41 @@ function readOidcEndpointErrorDetail(
     };
 }
 
+function summarizeErrorForLog(
+    error: unknown,
+): {
+    name?: string;
+    message: string;
+    code?: string;
+    stack?: string;
+} {
+    if (error instanceof Error) {
+        const maybeCode = (error as Error & { code?: unknown }).code;
+        return {
+            name: error.name,
+            message: error.message,
+            code: typeof maybeCode === "string" ? maybeCode : undefined,
+            stack: error.stack,
+        };
+    }
+    return {
+        message: String(error),
+    };
+}
+
+function toErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
+
+function sanitizeLogUrl(url: string): string {
+    try {
+        const parsed = new URL(url);
+        return `${parsed.origin}${parsed.pathname}`;
+    } catch {
+        return url;
+    }
+}
+
 function normalizeMessages(
     value: unknown,
 ): Record<string, ChatMessageRecord[]> {
@@ -343,6 +378,18 @@ export class WebUiRuntime {
         };
         this.allowLocalDevAuth = config.allowLocalDevAuth;
         this.executeCall = executeCall;
+    }
+
+    private logRuntimeError(
+        stage: string,
+        error: unknown,
+        context?: Record<string, unknown>,
+    ): void {
+        const details = summarizeErrorForLog(error);
+        console.error(`[web-ui runtime] ${stage}`, {
+            ...(context || {}),
+            ...details,
+        });
     }
 
     getOidcMissingConfigFields(): string[] {
@@ -929,7 +976,17 @@ export class WebUiRuntime {
 
         const issuer = normalizeUrl(this.oidcConfig.issuer);
         const discoveryUrl = `${issuer}/.well-known/openid-configuration`;
-        const response = await fetch(discoveryUrl);
+        let response: Response;
+        try {
+            response = await fetch(discoveryUrl);
+        } catch (error) {
+            this.logRuntimeError("oidc.discovery.fetch_failed", error, {
+                discoveryUrl: sanitizeLogUrl(discoveryUrl),
+            });
+            throw new Error(
+                `OIDC discovery request failed: ${toErrorMessage(error)}`,
+            );
+        }
         const rawBody = await response.text();
 
         let payload: Record<string, unknown> = {};
@@ -940,6 +997,11 @@ export class WebUiRuntime {
         }
 
         if (!response.ok) {
+            console.error("[web-ui runtime] oidc.discovery.http_error", {
+                discoveryUrl: sanitizeLogUrl(discoveryUrl),
+                status: response.status,
+                body: rawBody.slice(0, 200),
+            });
             throw new Error(
                 `OIDC discovery failed (${response.status}): ${rawBody.slice(0, 200)}`,
             );
@@ -997,13 +1059,23 @@ export class WebUiRuntime {
             body.set("code_verifier", codeVerifier);
         }
 
-        const response = await fetch(tokenEndpoint, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
-            body: body.toString(),
-        });
+        let response: Response;
+        try {
+            response = await fetch(tokenEndpoint, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                body: body.toString(),
+            });
+        } catch (error) {
+            this.logRuntimeError("oidc.authorization_code.fetch_failed", error, {
+                tokenEndpoint: sanitizeLogUrl(tokenEndpoint),
+            });
+            throw new Error(
+                `OIDC token exchange request failed: ${toErrorMessage(error)}`,
+            );
+        }
 
         const rawBody = await response.text();
         let payload: Record<string, unknown> = {};
@@ -1015,6 +1087,12 @@ export class WebUiRuntime {
 
         if (!response.ok) {
             const error = readOidcEndpointErrorDetail(payload, rawBody);
+            console.error("[web-ui runtime] oidc.authorization_code.http_error", {
+                tokenEndpoint: sanitizeLogUrl(tokenEndpoint),
+                status: response.status,
+                errorCode: error.code,
+                errorMessage: error.message,
+            });
             throw new Error(
                 `OIDC token exchange failed (${response.status}): ${error.message}`,
             );
@@ -1053,13 +1131,24 @@ export class WebUiRuntime {
             subject_token_type: "urn:ietf:params:oauth:token-type:id_token",
         });
 
-        const response = await fetch(tokenEndpoint, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
-            body: body.toString(),
-        });
+        let response: Response;
+        try {
+            response = await fetch(tokenEndpoint, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                body: body.toString(),
+            });
+        } catch (error) {
+            this.logRuntimeError("oidc.token_exchange.fetch_failed", error, {
+                tokenEndpoint: sanitizeLogUrl(tokenEndpoint),
+                requestedToken,
+            });
+            throw new Error(
+                `OIDC requested-token exchange request failed: ${toErrorMessage(error)}`,
+            );
+        }
 
         const rawBody = await response.text();
         let payload: Record<string, unknown> = {};
@@ -1071,6 +1160,13 @@ export class WebUiRuntime {
 
         if (!response.ok) {
             const error = readOidcEndpointErrorDetail(payload, rawBody);
+            console.error("[web-ui runtime] oidc.token_exchange.http_error", {
+                tokenEndpoint: sanitizeLogUrl(tokenEndpoint),
+                status: response.status,
+                requestedToken,
+                errorCode: error.code,
+                errorMessage: error.message,
+            });
             if (
                 error.code === "invalid_subject_token" &&
                 error.message.toLowerCase().includes("missing organization_id")
@@ -1099,11 +1195,21 @@ export class WebUiRuntime {
         userinfoEndpoint: string | undefined,
     ): Promise<OidcProfile> {
         if (userinfoEndpoint) {
-            const response = await fetch(userinfoEndpoint, {
-                headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                },
-            });
+            let response: Response;
+            try {
+                response = await fetch(userinfoEndpoint, {
+                    headers: {
+                        Authorization: `Bearer ${accessToken}`,
+                    },
+                });
+            } catch (error) {
+                this.logRuntimeError("oidc.userinfo.fetch_failed", error, {
+                    userinfoEndpoint: sanitizeLogUrl(userinfoEndpoint),
+                });
+                throw new Error(
+                    `OIDC userinfo request failed: ${toErrorMessage(error)}`,
+                );
+            }
             const rawBody = await response.text();
             let payload: Record<string, unknown> = {};
             try {
@@ -1115,6 +1221,11 @@ export class WebUiRuntime {
             }
 
             if (!response.ok) {
+                console.error("[web-ui runtime] oidc.userinfo.http_error", {
+                    userinfoEndpoint: sanitizeLogUrl(userinfoEndpoint),
+                    status: response.status,
+                    body: rawBody.slice(0, 200),
+                });
                 throw new Error(
                     `OIDC userinfo fetch failed (${response.status}): ${rawBody.slice(0, 200)}`,
                 );
@@ -1174,7 +1285,11 @@ export class WebUiRuntime {
             if (fromRemote) {
                 return fromRemote;
             }
-        } catch {
+        } catch (error) {
+            this.logRuntimeError("planner.remote.failed", error, {
+                baseUrl: this.plannerConfig.baseUrl,
+                model: this.plannerConfig.model,
+            });
             // Fall through to deterministic planner when remote planning fails.
         }
 
@@ -1242,34 +1357,49 @@ export class WebUiRuntime {
             input.message,
         ].join("\n");
 
-        const response = await fetch(
-            `${this.plannerConfig.baseUrl}/chat/completions`,
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${plannerApiKey}`,
+        let response: Response;
+        try {
+            response = await fetch(
+                `${this.plannerConfig.baseUrl}/chat/completions`,
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${plannerApiKey}`,
+                    },
+                    body: JSON.stringify({
+                        model: this.plannerConfig.model,
+                        temperature: 0.1,
+                        response_format: { type: "json_object" },
+                        messages: [
+                            {
+                                role: "system",
+                                content: systemPrompt,
+                            },
+                            {
+                                role: "user",
+                                content: userPrompt,
+                            },
+                        ],
+                    }),
                 },
-                body: JSON.stringify({
-                    model: this.plannerConfig.model,
-                    temperature: 0.1,
-                    response_format: { type: "json_object" },
-                    messages: [
-                        {
-                            role: "system",
-                            content: systemPrompt,
-                        },
-                        {
-                            role: "user",
-                            content: userPrompt,
-                        },
-                    ],
-                }),
-            },
-        );
+            );
+        } catch (error) {
+            this.logRuntimeError("planner.fetch_failed", error, {
+                baseUrl: this.plannerConfig.baseUrl,
+                model: this.plannerConfig.model,
+            });
+            return null;
+        }
 
         const rawBody = await response.text();
         if (!response.ok) {
+            console.error("[web-ui runtime] planner.http_error", {
+                baseUrl: this.plannerConfig.baseUrl,
+                model: this.plannerConfig.model,
+                status: response.status,
+                body: rawBody.slice(0, 200),
+            });
             return null;
         }
 

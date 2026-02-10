@@ -290,6 +290,40 @@ function getRequestOrigin(c: Context<{ Bindings: HttpBindings }>): string {
     return new URL(c.req.url).origin;
 }
 
+function summarizeErrorForLog(
+    error: unknown,
+): {
+    name?: string;
+    message: string;
+    stack?: string;
+    code?: string;
+} {
+    if (error instanceof Error) {
+        const maybeCode = (error as Error & { code?: unknown }).code;
+        return {
+            name: error.name,
+            message: error.message,
+            stack: error.stack,
+            code: typeof maybeCode === "string" ? maybeCode : undefined,
+        };
+    }
+
+    return {
+        message: String(error),
+    };
+}
+
+function logWebUiAuthError(
+    stage: string,
+    error: unknown,
+    context?: Record<string, unknown>,
+): void {
+    console.error(`[web-ui auth] ${stage}`, {
+        ...(context || {}),
+        ...summarizeErrorForLog(error),
+    });
+}
+
 export function createHttpApp(deps: HttpAppDependencies) {
     const {
         port,
@@ -598,6 +632,9 @@ export function createHttpApp(deps: HttpAppDependencies) {
             } catch (error) {
                 const message =
                     error instanceof Error ? error.message : String(error);
+                logWebUiAuthError("discord.oauth.callback.failed", error, {
+                    path: c.req.path,
+                });
                 const isBadRequest =
                     message.includes("state") ||
                     message.includes("requires both code and state");
@@ -659,6 +696,11 @@ export function createHttpApp(deps: HttpAppDependencies) {
         } catch (error) {
             const message =
                 error instanceof Error ? error.message : String(error);
+            logWebUiAuthError("oidc.start.failed", error, {
+                path: c.req.path,
+                returnTo,
+                workspaceId: workspaceId || undefined,
+            });
             return c.json({ error: message }, 500);
         }
     });
@@ -718,6 +760,11 @@ export function createHttpApp(deps: HttpAppDependencies) {
         } catch (error) {
             const message =
                 error instanceof Error ? error.message : String(error);
+            logWebUiAuthError("codex.start.failed", error, {
+                path: c.req.path,
+                returnTo,
+                workspaceId: workspaceId || undefined,
+            });
             return c.json({ error: message }, 500);
         }
     });
@@ -735,6 +782,11 @@ export function createHttpApp(deps: HttpAppDependencies) {
             const message = query.error_description
                 ? `${query.error}: ${query.error_description}`
                 : query.error;
+            console.error("[web-ui auth] oidc.callback.provider_error", {
+                path: c.req.path,
+                error: query.error,
+                description: query.error_description,
+            });
             return c.redirect(
                 `${mountPath}/?authError=${encodeURIComponent(message)}`,
                 302,
@@ -769,6 +821,9 @@ export function createHttpApp(deps: HttpAppDependencies) {
         } catch (error) {
             const message =
                 error instanceof Error ? error.message : String(error);
+            logWebUiAuthError("oidc.callback.failed", error, {
+                path: c.req.path,
+            });
             return c.redirect(
                 `${mountPath}/?authError=${encodeURIComponent(message)}`,
                 302,
