@@ -14,14 +14,6 @@ export interface OAuthConfig {
 }
 
 export interface AutomationConfig {
-    defaultGuildId?: string;
-    enableLogging: boolean;
-    maxRetries: number;
-    retryDelay: number;
-    timeout: number;
-    rateLimitProtection: boolean;
-    allowedActions: string[];
-    deniedActions: string[];
     auth?: AuthConfig;
     oauth: OAuthConfig;
 }
@@ -87,22 +79,9 @@ export class ConfigManager {
         };
 
         return {
-            defaultGuildId: process.env.DISCORD_GUILD_ID,
-            enableLogging: process.env.ENABLE_LOGGING === "true",
-            maxRetries: parseInt(process.env.MAX_RETRIES || "3"),
-            retryDelay: parseInt(process.env.RETRY_DELAY || "1000"),
-            timeout: parseInt(process.env.TIMEOUT || "30000"),
-            rateLimitProtection: process.env.RATE_LIMIT_PROTECTION !== "false",
-            allowedActions: this.parseActionList(process.env.ALLOWED_ACTIONS),
-            deniedActions: this.parseActionList(process.env.DENIED_ACTIONS),
             auth: authConfig,
             oauth: oauthConfig,
         };
-    }
-
-    private parseActionList(actionList?: string): string[] {
-        if (!actionList) return [];
-        return actionList.split(",").map((action) => action.trim());
     }
 
     getConfig(): AutomationConfig {

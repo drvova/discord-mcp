@@ -1,4 +1,4 @@
-export class DiscordAPIError extends Error {
+class DiscordAPIError extends Error {
   constructor(
     message: string,
     public readonly code?: number,
@@ -10,21 +10,21 @@ export class DiscordAPIError extends Error {
   }
 }
 
-export class ValidationError extends Error {
+class ValidationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'ValidationError';
   }
 }
 
-export class PermissionError extends Error {
+class PermissionError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'PermissionError';
   }
 }
 
-export class RateLimitError extends Error {
+class RateLimitError extends Error {
   constructor(
     message: string,
     public readonly retryAfter: number,

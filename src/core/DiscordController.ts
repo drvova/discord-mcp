@@ -54,8 +54,4 @@ export class DiscordController {
     getConfigManager(): ConfigManager {
         return this.configManager;
     }
-
-    getLogger(): Logger {
-        return this.logger;
-    }
 }

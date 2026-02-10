@@ -50,28 +50,9 @@ export class Logger {
     }
   }
 
-  warn(message: string): void {
-    if (this.shouldLog(LogLevel.WARN)) {
-      console.warn(this.formatMessage('WARN', message));
-    }
-  }
-
   info(message: string): void {
     if (this.shouldLog(LogLevel.INFO)) {
       console.info(this.formatMessage('INFO', message));
-    }
-  }
-
-  debug(message: string): void {
-    if (this.shouldLog(LogLevel.DEBUG)) {
-      console.debug(this.formatMessage('DEBUG', message));
-    }
-  }
-
-  logOperation(operation: string, details?: Record<string, any>): void {
-    if (this.shouldLog(LogLevel.INFO)) {
-      const detailStr = details ? ` ${JSON.stringify(details)}` : '';
-      this.info(`Operation: ${operation}${detailStr}`);
     }
   }
 
