@@ -9,9 +9,9 @@
     },
     "scripts": {
         "build": "tsc",
-        "dev": "tsx src/index.ts",
+        "dev": "npm run build && concurrently \"tsc -w --preserveWatchOutput\" \"node --watch dist/src/index.js\"",
         "start": "node dist/src/index.js",
-        "web": "MCP_HTTP_PORT=3001 tsx src/index.ts",
+        "web": "MCP_HTTP_PORT=3001 node dist/src/index.js",
         "web:build": "npm run build && MCP_HTTP_PORT=3001 node dist/src/index.js",
         "prepare": "npm run build"
     },
@@ -34,20 +34,17 @@
     "dependencies": {
         "@discordjs/opus": "^0.10.0",
         "@discordjs/voice": "^0.18.0",
+        "@hono/node-server": "^1.19.9",
         "@modelcontextprotocol/sdk": "^1.16.0",
-        "@types/cors": "^2.8.19",
-        "@types/express": "^5.0.5",
-        "cors": "^2.8.5",
         "discord.js": "^14.21.0",
         "dotenv": "^17.2.0",
-        "express": "^5.1.0",
         "groq-sdk": "^0.34.0",
+        "hono": "^4.11.9",
         "zod": "^3.25.76"
     },
     "devDependencies": {
         "@types/node": "^24.0.15",
         "concurrently": "^9.2.1",
-        "tsx": "^4.20.3",
         "typescript": "^5.8.3"
     }
 }

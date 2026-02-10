@@ -2,17 +2,17 @@
 import "dotenv/config";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import {
     CallToolRequestSchema,
     ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { createServer, IncomingMessage, ServerResponse } from "node:http";
+import { serve } from "@hono/node-server";
 import { DiscordService } from "./discord-service.js";
 import { DiscordController } from "./core/DiscordController.js";
 import { OAuthManager } from "./core/OAuthManager.js";
 import { writeAuditEvent } from "./gateway/audit-log.js";
 import { getDiscordJsSymbolsCatalog } from "./gateway/discordjs-symbol-catalog.js";
+import { createHttpApp } from "./http-app.js";
 import {
     DISCORDJS_DISCOVERY_OPERATION,
     DYNAMIC_DISCORDJS_OPERATION_PREFIX,
@@ -649,411 +649,32 @@ async function main() {
         }
 
         if (useHttp) {
-            // Start HTTP server
-            const port = parseInt(useHttp) || 3000;
-
-            // Map to store active transports by session ID
-            const activeTransports = new Map();
-
-            const httpServer = createServer(
-                async (req: IncomingMessage, res: ServerResponse) => {
-                const url = new URL(
-                    req.url || "/",
-                    `http://${req.headers.host}`,
-                );
-
-                // CORS headers
-                res.setHeader("Access-Control-Allow-Origin", "*");
-                res.setHeader(
-                    "Access-Control-Allow-Methods",
-                    "GET, POST, OPTIONS",
-                );
-                res.setHeader(
-                    "Access-Control-Allow-Headers",
-                    "Content-Type, Authorization",
-                );
-
-                if (req.method === "OPTIONS") {
-                    res.writeHead(200);
-                    res.end();
-                    return;
-                }
-
-                try {
-                    if (
-                        req.method === "POST" &&
-                        req.headers["content-type"]?.includes(
-                            "application/json",
-                        )
-                    ) {
-                        // Handle JSON-RPC over HTTP (mcp-remote style)
-                        let body = "";
-                        req.on("data", (chunk: Buffer) => {
-                            body += chunk.toString();
-                        });
-
-                        req.on("end", async () => {
-                            try {
-                                const message = JSON.parse(body);
-
-                                // Handle the JSON-RPC request directly
-                                if (message.method === "initialize") {
-                                    const response = {
-                                        jsonrpc: "2.0",
-                                        id: message.id,
-                                        result: {
-                                            protocolVersion: "2024-11-05",
-                                            capabilities: {
-                                                tools: {},
-                                            },
-                                            serverInfo: {
-                                                name: "discord-mcp-server",
-                                                version: "0.0.1",
-                                            },
-                                        },
-                                    };
-                                    res.writeHead(200, {
-                                        "Content-Type": "application/json",
-                                    });
-                                    res.end(JSON.stringify(response));
-                                } else if (message.method === "tools/list") {
-                                    // Return complete tools list
-                                    const tools = getAllTools();
-                                    const response = {
-                                        jsonrpc: "2.0",
-                                        id: message.id,
-                                        result: { tools },
-                                    };
-                                    res.writeHead(200, {
-                                        "Content-Type": "application/json",
-                                    });
-                                    res.end(JSON.stringify(response));
-                                } else if (message.method === "tools/call") {
-                                    // Handle tool call by name
-                                    try {
-                                        const parsedCall =
-                                            parseDiscordManageCall(
-                                                message.params.name,
-                                                message.params.arguments,
-                                            );
-                                        const startedAt = Date.now();
-                                        let result: string;
-
-                                        try {
-                                            result =
-                                                await identityWorkerPool.run(
-                                                    parsedCall.identityId,
-                                                    async () => {
-                                                        await ensureIdentityForCall(
-                                                            parsedCall.mode,
-                                                            parsedCall.identityId,
-                                                        );
-                                                        return executeDiscordManageOperation(
-                                                            parsedCall,
-                                                        );
-                                                    },
-                                                );
-
-                                            writeAuditEvent({
-                                                identityId:
-                                                    parsedCall.identityId,
-                                                mode: parsedCall.mode,
-                                                method: parsedCall.method,
-                                                operation: parsedCall.operation,
-                                                riskTier: parsedCall.riskTier,
-                                                status: "success",
-                                                durationMs:
-                                                    Date.now() - startedAt,
-                                            });
-                                        } catch (error) {
-                                            writeAuditEvent({
-                                                identityId:
-                                                    parsedCall.identityId,
-                                                mode: parsedCall.mode,
-                                                method: parsedCall.method,
-                                                operation: parsedCall.operation,
-                                                riskTier: parsedCall.riskTier,
-                                                status: "error",
-                                                durationMs:
-                                                    Date.now() - startedAt,
-                                                error:
-                                                    error instanceof Error
-                                                        ? error.message
-                                                        : String(error),
-                                            });
-                                            throw error;
-                                        }
-
-                                        const response = {
-                                            jsonrpc: "2.0",
-                                            id: message.id,
-                                            result: {
-                                                content: [
-                                                    {
-                                                        type: "text",
-                                                        text: result,
-                                                    },
-                                                ],
-                                            },
-                                        };
-                                        res.writeHead(200, {
-                                            "Content-Type": "application/json",
-                                        });
-                                        res.end(JSON.stringify(response));
-                                    } catch (error) {
-                                        const response = {
-                                            jsonrpc: "2.0",
-                                            id: message.id,
-                                            error: {
-                                                code: -32000,
-                                                message:
-                                                    error instanceof Error
-                                                        ? error.message
-                                                        : String(error),
-                                            },
-                                        };
-                                        res.writeHead(200, {
-                                            "Content-Type": "application/json",
-                                        });
-                                        res.end(JSON.stringify(response));
-                                    }
-                                } else {
-                                    // Unknown method
-                                    const response = {
-                                        jsonrpc: "2.0",
-                                        id: message.id,
-                                        error: {
-                                            code: -32601,
-                                            message: "Method not found",
-                                        },
-                                    };
-                                    res.writeHead(200, {
-                                        "Content-Type": "application/json",
-                                    });
-                                    res.end(JSON.stringify(response));
-                                }
-                            } catch (error) {
-                                const response = {
-                                    jsonrpc: "2.0",
-                                    id: null,
-                                    error: {
-                                        code: -32700,
-                                        message: "Parse error",
-                                    },
-                                };
-                                res.writeHead(400, {
-                                    "Content-Type": "application/json",
-                                });
-                                res.end(JSON.stringify(response));
-                            }
-                        });
-                    } else if (
-                        url.pathname === "/sse" &&
-                        req.method === "GET"
-                    ) {
-                        // SSE connection
-                        const transport = new SSEServerTransport(
-                            "/message",
-                            res,
-                        );
-                        activeTransports.set(transport.sessionId, transport);
-                        await server.connect(transport);
-                        await transport.start();
-                        transport.onclose = () => {
-                            activeTransports.delete(transport.sessionId);
-                        };
-                    } else if (
-                        url.pathname === "/message" &&
-                        req.method === "POST"
-                    ) {
-                        // Handle POST messages from mcp-remote
-                        let body = "";
-                        req.on("data", (chunk: Buffer) => {
-                            body += chunk.toString();
-                        });
-
-                        req.on("end", async () => {
-                            try {
-                                // Get session ID from URL params or headers
-                                const sessionId =
-                                    url.searchParams.get("sessionId") ||
-                                    req.headers["x-session-id"];
-                                const transport =
-                                    activeTransports.get(sessionId);
-
-                                if (transport) {
-                                    const message = JSON.parse(body);
-                                    await transport.handleMessage(message);
-                                    res.writeHead(200, {
-                                        "Content-Type": "application/json",
-                                    });
-                                    res.end(JSON.stringify({ success: true }));
-                                } else {
-                                    res.writeHead(404, {
-                                        "Content-Type": "application/json",
-                                    });
-                                    res.end(
-                                        JSON.stringify({
-                                            error: "Session not found",
-                                        }),
-                                    );
-                                }
-                            } catch (error) {
-                                res.writeHead(400, {
-                                    "Content-Type": "application/json",
-                                });
-                                res.end(
-                                    JSON.stringify({
-                                        error:
-                                            error instanceof Error
-                                                ? error.message
-                                                : String(error),
-                                    }),
-                                );
-                            }
-                        });
-                    } else if (
-                        url.pathname === "/health" &&
-                        req.method === "GET"
-                    ) {
-                        // Health check
-                        res.writeHead(200, {
-                            "Content-Type": "application/json",
-                        });
-                        res.end(
-                            JSON.stringify({
-                                status: "ok",
-                                server: "discord-mcp",
-                                activeConnections: activeTransports.size,
-                            }),
-                        );
-                    } else if (
-                        url.pathname === "/oauth/discord/start" &&
-                        req.method === "GET"
-                    ) {
-                        try {
-                            const disableGuildSelect = parseBooleanQuery(
-                                url.searchParams.get("disableGuildSelect"),
-                            );
-                            const auth = await getOAuthManager().createAuthorizeLink(
-                                {
-                                    guildId:
-                                        url.searchParams.get("guildId") ||
-                                        undefined,
-                                    disableGuildSelect,
-                                },
-                            );
-
-                            res.writeHead(200, {
-                                "Content-Type": "application/json",
-                            });
-                            res.end(
-                                JSON.stringify({
-                                    authorizeUrl: auth.authorizeUrl,
-                                    expiresAt: auth.expiresAt,
-                                    scopes: auth.scopes,
-                                    permissions: auth.permissions,
-                                }),
-                            );
-                        } catch (error) {
-                            res.writeHead(500, {
-                                "Content-Type": "application/json",
-                            });
-                            res.end(
-                                JSON.stringify({
-                                    error:
-                                        error instanceof Error
-                                            ? error.message
-                                            : String(error),
-                                }),
-                            );
-                        }
-                    } else if (
-                        url.pathname === "/oauth/discord/callback" &&
-                        req.method === "GET"
-                    ) {
-                        const code = url.searchParams.get("code");
-                        const state = url.searchParams.get("state");
-
-                        if (!code || !state) {
-                            res.writeHead(400, {
-                                "Content-Type": "application/json",
-                            });
-                            res.end(
-                                JSON.stringify({
-                                    error: "OAuth callback requires code and state query parameters",
-                                }),
-                            );
-                            return;
-                        }
-
-                        try {
-                            const callbackResult =
-                                await getOAuthManager().completeCallback(
-                                    code,
-                                    state,
-                                );
-
-                            res.writeHead(200, {
-                                "Content-Type": "application/json",
-                            });
-                            res.end(
-                                JSON.stringify({
-                                    status: "ok",
-                                    ...callbackResult,
-                                }),
-                            );
-                        } catch (error) {
-                            const message =
-                                error instanceof Error
-                                    ? error.message
-                                    : String(error);
-                            const isBadRequest =
-                                message.includes("state") ||
-                                message.includes("requires both code and state");
-                            res.writeHead(isBadRequest ? 400 : 502, {
-                                "Content-Type": "application/json",
-                            });
-                            res.end(JSON.stringify({ error: message }));
-                        }
-                    } else {
-                        // Default response with mcp-remote instructions
-                        res.writeHead(200, { "Content-Type": "text/plain" });
-                        res.end(`Discord MCP Server
-
-MCP Remote Usage:
-npx -y mcp-remote ${req.headers.host}
-
-Endpoints:
-- GET /sse - SSE connection
-- POST /message - Message handling
-- GET /health - Health check
-- GET /oauth/discord/start - Generate OAuth install URL
-- GET /oauth/discord/callback - OAuth callback handler
-
-Active connections: ${activeTransports.size}`);
-                    }
-                } catch (error) {
-                    console.error("HTTP request error:", error);
-                    res.writeHead(500, { "Content-Type": "application/json" });
-                    res.end(JSON.stringify({ error: "Internal server error" }));
-                }
-                },
-            );
-
-            httpServer.listen(port, () => {
-                console.error(
-                    `Discord MCP server running on HTTP port ${port}`,
-                );
-                console.error(`SSE endpoint: http://localhost:${port}/sse`);
-                console.error(`Health check: http://localhost:${port}/health`);
-                console.error(
-                    `OAuth start: http://localhost:${port}/oauth/discord/start`,
-                );
-                console.error(
-                    `OAuth callback: http://localhost:${port}/oauth/discord/callback`,
-                );
+            const port = Number.parseInt(useHttp, 10) || 3000;
+            const app = createHttpApp({
+                port,
+                server,
+                identityWorkerPool,
+                parseDiscordManageCall,
+                ensureIdentityForCall,
+                executeDiscordManageOperation,
+                writeAuditEvent,
+                getOAuthManager,
+                parseBooleanQuery,
+                getAllTools,
             });
+            serve({ fetch: app.fetch, port });
+
+            console.error(
+                `Discord MCP server running on HTTP port ${port}`,
+            );
+            console.error(`SSE endpoint: http://localhost:${port}/sse`);
+            console.error(`Health check: http://localhost:${port}/health`);
+            console.error(
+                `OAuth start: http://localhost:${port}/oauth/discord/start`,
+            );
+            console.error(
+                `OAuth callback: http://localhost:${port}/oauth/discord/callback`,
+            );
         } else {
             // Start stdio server (default)
             const transport = new StdioServerTransport();

@@ -9,6 +9,7 @@ Discord MCP Server exposes Discord.js through one MCP tool with a dynamic symbol
 This repository now uses the **dynamic Discord.js routing architecture**:
 
 - **MCP tool**: `discord_manage`
+- **HTTP runtime**: Hono (`@hono/node-server`)
 - **Discovery operation**:
   - `discordjs.meta.symbols` (method: `automation.read`)
 - **Invocation operation format**:
@@ -109,6 +110,20 @@ When `MCP_HTTP_PORT` (or `PORT`) is set:
 - `GET /oauth/discord/start`
 - `GET /oauth/discord/callback`
 
+## Typed HTTP Client (`hc`)
+
+You can use the generated typed client from Hono route types:
+
+```ts
+import { createHttpClient } from "./src/http-client.js";
+
+const client = createHttpClient("http://localhost:3001");
+const response = await client.health.$get();
+const health = await response.json();
+```
+
+The MCP JSON-RPC contract on `POST /` is unchanged (`initialize`, `tools/list`, `tools/call`).
+
 ## Usage Examples
 
 ### 1) Discover Symbols
@@ -188,7 +203,7 @@ If you expect thousands of operations in the MCP registry, this is by design:
 ## Scripts
 
 - `npm run build` - compile TypeScript
-- `npm run dev` - run via `tsx`
+- `npm run dev` - build once, then run `tsc -w` + `node --watch`
 - `npm start` - run compiled stdio server
-- `npm run web` - run HTTP/SSE server
+- `npm run web` - run compiled Hono HTTP/SSE server on port 3001
 - `npm run web:build` - build then run HTTP/SSE
