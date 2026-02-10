@@ -268,14 +268,27 @@ type OpenAiAuthClaimSummary = {
     organizationsCount?: number;
 };
 
-function summarizeOpenAiAuthClaims(idToken: string | undefined): OpenAiAuthClaimSummary {
+type ParsedOpenAiAuthClaims = {
+    summary: OpenAiAuthClaimSummary;
+    organizationIds: string[];
+};
+
+function parseOpenAiAuthClaims(
+    idToken: string | undefined,
+): ParsedOpenAiAuthClaims {
     if (!idToken) {
-        return {};
+        return {
+            summary: {},
+            organizationIds: [],
+        };
     }
 
     const tokenParts = idToken.split(".");
     if (tokenParts.length < 2) {
-        return {};
+        return {
+            summary: {},
+            organizationIds: [],
+        };
     }
 
     let payload: Record<string, unknown> = {};
@@ -306,12 +319,32 @@ function summarizeOpenAiAuthClaims(idToken: string | undefined): OpenAiAuthClaim
     const organizationsCount = Array.isArray(authNamespace.organizations)
         ? authNamespace.organizations.length
         : undefined;
+    const organizationIds = Array.isArray(authNamespace.organizations)
+        ? authNamespace.organizations
+              .map((entry) => normalizeRecord(entry))
+              .map((entry) => {
+                  if (typeof entry.organization_id === "string") {
+                      return entry.organization_id;
+                  }
+                  if (typeof entry.id === "string") {
+                      return entry.id;
+                  }
+                  if (typeof entry.org_id === "string") {
+                      return entry.org_id;
+                  }
+                  return "";
+              })
+              .filter((id) => id.trim().length > 0)
+        : [];
 
     return {
-        organizationId,
-        projectId,
-        chatgptAccountId,
-        organizationsCount,
+        summary: {
+            organizationId,
+            projectId,
+            chatgptAccountId,
+            organizationsCount,
+        },
+        organizationIds,
     };
 }
 
@@ -1189,7 +1222,7 @@ export class WebUiRuntime {
             throw new Error("OIDC client ID is missing for token exchange.");
         }
 
-        const body = new URLSearchParams({
+        const baseBody = new URLSearchParams({
             grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
             client_id: clientId,
             requested_token: requestedToken,
@@ -1197,32 +1230,56 @@ export class WebUiRuntime {
             subject_token_type: "urn:ietf:params:oauth:token-type:id_token",
         });
 
-        let response: Response;
-        try {
-            response = await fetch(tokenEndpoint, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/x-www-form-urlencoded",
-                },
-                body: body.toString(),
-            });
-        } catch (error) {
-            this.logRuntimeError("oidc.token_exchange.fetch_failed", error, {
-                tokenEndpoint: sanitizeLogUrl(tokenEndpoint),
-                requestedToken,
-            });
-            throw new Error(
-                `OIDC requested-token exchange request failed: ${toErrorMessage(error)}`,
-            );
-        }
+        const executeTokenExchange = async (
+            body: URLSearchParams,
+            attempt: string,
+        ): Promise<{
+            response: Response;
+            payload: Record<string, unknown>;
+            rawBody: string;
+        }> => {
+            let response: Response;
+            try {
+                response = await fetch(tokenEndpoint, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                    body: body.toString(),
+                });
+            } catch (error) {
+                this.logRuntimeError("oidc.token_exchange.fetch_failed", error, {
+                    tokenEndpoint: sanitizeLogUrl(tokenEndpoint),
+                    requestedToken,
+                    attempt,
+                    includesOrganizationId: body.has("organization_id"),
+                });
+                throw new Error(
+                    `OIDC requested-token exchange request failed: ${toErrorMessage(error)}`,
+                );
+            }
 
-        const rawBody = await response.text();
-        let payload: Record<string, unknown> = {};
-        try {
-            payload = rawBody ? (JSON.parse(rawBody) as Record<string, unknown>) : {};
-        } catch {
-            payload = {};
-        }
+            const rawBody = await response.text();
+            let payload: Record<string, unknown> = {};
+            try {
+                payload = rawBody
+                    ? (JSON.parse(rawBody) as Record<string, unknown>)
+                    : {};
+            } catch {
+                payload = {};
+            }
+
+            return {
+                response,
+                payload,
+                rawBody,
+            };
+        };
+
+        let { response, payload, rawBody } = await executeTokenExchange(
+            baseBody,
+            "initial",
+        );
 
         if (!response.ok) {
             const error = readOidcEndpointErrorDetail(payload, rawBody);
@@ -1237,25 +1294,84 @@ export class WebUiRuntime {
                 error.code === "invalid_subject_token" &&
                 error.message.toLowerCase().includes("missing organization_id")
             ) {
-                const authClaims = summarizeOpenAiAuthClaims(idToken);
+                const authClaims = parseOpenAiAuthClaims(idToken);
                 console.error(
                     "[web-ui runtime] oidc.token_exchange.missing_organization_id",
                     {
                         tokenEndpoint: sanitizeLogUrl(tokenEndpoint),
                         requestedToken,
-                        hasOrganizationId: Boolean(authClaims.organizationId),
-                        projectId: authClaims.projectId,
-                        chatgptAccountId: authClaims.chatgptAccountId,
-                        organizationsCount: authClaims.organizationsCount,
+                        hasOrganizationId: Boolean(authClaims.summary.organizationId),
+                        projectId: authClaims.summary.projectId,
+                        chatgptAccountId: authClaims.summary.chatgptAccountId,
+                        organizationsCount: authClaims.summary.organizationsCount,
+                        organizationIds: authClaims.organizationIds,
                         configuredAllowedWorkspaceId:
                             this.oidcConfig.extraAuthorizationParams
                                 ?.allowed_workspace_id || undefined,
                     },
                 );
+                const uniqueOrganizationIds = [
+                    ...new Set(authClaims.organizationIds),
+                ];
+                if (
+                    !authClaims.summary.organizationId &&
+                    uniqueOrganizationIds.length === 1
+                ) {
+                    const retryOrganizationId = uniqueOrganizationIds[0];
+                    const retryBody = new URLSearchParams(baseBody.toString());
+                    retryBody.set("organization_id", retryOrganizationId);
+                    console.error(
+                        "[web-ui runtime] oidc.token_exchange.retry_with_organization_id",
+                        {
+                            tokenEndpoint: sanitizeLogUrl(tokenEndpoint),
+                            requestedToken,
+                            retryOrganizationId,
+                        },
+                    );
+
+                    ({
+                        response,
+                        payload,
+                        rawBody,
+                    } = await executeTokenExchange(
+                        retryBody,
+                        "retry_with_organization_id",
+                    ));
+                    if (response.ok && typeof payload.access_token === "string") {
+                        console.error(
+                            "[web-ui runtime] oidc.token_exchange.retry_with_organization_id.succeeded",
+                            {
+                                tokenEndpoint: sanitizeLogUrl(tokenEndpoint),
+                                requestedToken,
+                                retryOrganizationId,
+                            },
+                        );
+                        return payload.access_token;
+                    }
+
+                    if (!response.ok) {
+                        const retryError = readOidcEndpointErrorDetail(
+                            payload,
+                            rawBody,
+                        );
+                        console.error(
+                            "[web-ui runtime] oidc.token_exchange.retry_with_organization_id.failed",
+                            {
+                                tokenEndpoint: sanitizeLogUrl(tokenEndpoint),
+                                requestedToken,
+                                status: response.status,
+                                retryOrganizationId,
+                                errorCode: retryError.code,
+                                errorMessage: retryError.message,
+                            },
+                        );
+                    }
+                }
+
                 const retryHint =
-                    authClaims.chatgptAccountId &&
-                    authClaims.chatgptAccountId.trim().length > 0
-                        ? ` Retry sign-in with workspaceId=${authClaims.chatgptAccountId}.`
+                    authClaims.summary.chatgptAccountId &&
+                    authClaims.summary.chatgptAccountId.trim().length > 0
+                        ? ` Retry sign-in with workspaceId=${authClaims.summary.chatgptAccountId}.`
                         : "";
                 throw new Error(
                     `OpenAI login is missing platform organization access (ID token did not include organization_id).${retryHint}`,
