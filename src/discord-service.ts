@@ -120,6 +120,7 @@ const DYNAMIC_WRITE_ALLOWLIST_PATTERNS: RegExp[] = [
     /^StringSelectMenuOptionBuilder[#.]/,
     /^ActionRowBuilder[#.]/,
     /^EmbedBuilder[#.]/,
+    /^[A-Za-z_$][A-Za-z0-9_$]*#send$/,
 ];
 
 export class DiscordService {
@@ -317,6 +318,8 @@ export class DiscordService {
             input.kind,
         );
         const symbolMeta = matches.find((item) => item.kind === kind) || matches[0];
+        const requestedSymbol = symbol;
+        const resolvedSymbol = symbolMeta.aliasOf || symbolMeta.name;
         const invoke = input.invoke ?? true;
         const dryRun = input.dryRun ?? false;
         const allowWrite = input.allowWrite ?? false;
@@ -324,7 +327,7 @@ export class DiscordService {
         const rawArgs = input.args || [];
         const behaviorClass =
             (symbolMeta.behaviorClass as DiscordJsBehaviorClass | undefined) ||
-            classifyDiscordJsSymbolBehavior(symbol, kind);
+            classifyDiscordJsSymbolBehavior(resolvedSymbol, kind);
 
         const context = await this.resolveInvocationContext(input.context);
         const resolvedArgs = this.resolveArgsWithRefs(rawArgs, context);
@@ -443,7 +446,7 @@ export class DiscordService {
             callable !== null &&
             typeof callable === "function";
         const policyResult = this.evaluateDiscordJsInvocationPolicy({
-            symbol,
+            symbol: resolvedSymbol,
             behaviorClass,
             allowWrite,
             policyMode,
@@ -461,7 +464,11 @@ export class DiscordService {
         if (dryRun) {
             return JSON.stringify(
                 {
-                    symbol,
+                    symbol: requestedSymbol,
+                    requestedSymbol,
+                    resolvedSymbol,
+                    aliasOf: symbolMeta.aliasOf,
+                    origin: symbolMeta.origin,
                     kind,
                     docsPath: symbolMeta.docsPath,
                     dryRun: true,
@@ -487,13 +494,17 @@ export class DiscordService {
 
         if (invoke && !canInvoke) {
             throw new Error(
-                `Symbol '${symbol}' (${kind}) is not invokable. Use 'invoke: false' to fetch metadata/value.`,
+                `Symbol '${requestedSymbol}' (${kind}) is not invokable. Use 'invoke: false' to fetch metadata/value.`,
             );
         }
 
         if (!invoke || !callable) {
             const payload: Record<string, unknown> = {
-                symbol,
+                symbol: requestedSymbol,
+                requestedSymbol,
+                resolvedSymbol,
+                aliasOf: symbolMeta.aliasOf,
+                origin: symbolMeta.origin,
                 kind,
                 docsPath: symbolMeta.docsPath,
                 invocationMode,
@@ -511,7 +522,10 @@ export class DiscordService {
             }
 
             if (kind === "event") {
-                payload.eventMetadata = this.buildEventMetadata(symbol, discordExports);
+                payload.eventMetadata = this.buildEventMetadata(
+                    resolvedSymbol,
+                    discordExports,
+                );
             } else {
                 payload.value = this.serializeInvocationValue(value);
             }
@@ -522,7 +536,11 @@ export class DiscordService {
         if (policyResult.decision === "blocked") {
             return JSON.stringify(
                 {
-                    symbol,
+                    symbol: requestedSymbol,
+                    requestedSymbol,
+                    resolvedSymbol,
+                    aliasOf: symbolMeta.aliasOf,
+                    origin: symbolMeta.origin,
                     kind,
                     docsPath: symbolMeta.docsPath,
                     invoked: false,
@@ -551,7 +569,11 @@ export class DiscordService {
 
         return JSON.stringify(
             {
-                symbol,
+                symbol: requestedSymbol,
+                requestedSymbol,
+                resolvedSymbol,
+                aliasOf: symbolMeta.aliasOf,
+                origin: symbolMeta.origin,
                 kind,
                 docsPath: symbolMeta.docsPath,
                 invoked: true,
