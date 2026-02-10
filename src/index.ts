@@ -686,6 +686,10 @@ async function main() {
                 .split(/\s+/)
                 .map((scope) => scope.trim())
                 .filter((scope) => scope.length > 0);
+            const allowLocalDevAuth =
+                process.env.DISCORD_WEB_ALLOW_DEV_AUTH !== undefined
+                    ? process.env.DISCORD_WEB_ALLOW_DEV_AUTH === "true"
+                    : process.env.NODE_ENV !== "production";
 
             const webUiRuntime = new WebUiRuntime(
                 {
@@ -714,6 +718,7 @@ async function main() {
                             "gpt-4o-mini",
                         maxActions: plannerMaxActions,
                     },
+                    allowLocalDevAuth,
                 },
                 async (request) => {
                     const parsedCall = parseDiscordManageCall("discord_manage", {
@@ -810,6 +815,11 @@ async function main() {
             if (!webUiRuntime.isOidcConfigured()) {
                 console.error(
                     `OIDC config missing fields: ${webUiRuntime.getOidcMissingConfigFields().join(", ")}`,
+                );
+            }
+            if (webUiRuntime.isLocalDevAuthEnabled()) {
+                console.error(
+                    "Local dev auth fallback is enabled (DISCORD_WEB_ALLOW_DEV_AUTH).",
                 );
             }
         } else {

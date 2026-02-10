@@ -50,6 +50,7 @@
     let isAuthenticated = false;
     let session: SessionData | null = null;
     let oidcConfigured = false;
+    let devAuthAvailable = false;
     let missingOidcFields: string[] = [];
 
     let threads: Thread[] = [];
@@ -115,6 +116,7 @@
             authenticated?: boolean;
             session?: SessionData;
             oidcConfigured?: boolean;
+            devAuthAvailable?: boolean;
             missingOidcFields?: string[];
             error?: string;
         } = {};
@@ -138,6 +140,7 @@
         }
 
         oidcConfigured = Boolean(payload.oidcConfigured);
+        devAuthAvailable = Boolean(payload.devAuthAvailable);
         missingOidcFields = payload.missingOidcFields || [];
 
         if (!payload.authenticated || !payload.session) {
@@ -411,6 +414,9 @@
             {#if !oidcConfigured}
                 <div class="warning-banner">
                     OIDC is not configured.
+                    {#if devAuthAvailable}
+                        Local dev sign-in is available and will be used automatically.
+                    {/if}
                     {#if missingOidcFields.length > 0}
                         <ul>
                             {#each missingOidcFields as field}
@@ -421,7 +427,7 @@
                 </div>
             {/if}
 
-            <button class="primary" on:click={startOidcLogin} disabled={!oidcConfigured}>
+            <button class="primary" on:click={startOidcLogin}>
                 Sign In (Codex-Style)
             </button>
         </section>

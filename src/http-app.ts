@@ -563,6 +563,32 @@ export function createHttpApp(deps: HttpAppDependencies) {
         const returnTo = normalizeReturnToPath(query.returnTo, mountPath);
 
         try {
+            if (
+                !webUiRuntime.isOidcConfigured() &&
+                webUiRuntime.isLocalDevAuthEnabled()
+            ) {
+                const session = await webUiRuntime.createLocalDevSession();
+                setCookie(c, webUiSessionCookieName, session.sessionId, {
+                    httpOnly: true,
+                    secure: process.env.NODE_ENV === "production",
+                    sameSite: "Lax",
+                    path: "/",
+                    maxAge: webUiSessionCookieTtlSeconds,
+                });
+
+                if (query.format === "json") {
+                    return c.json(
+                        {
+                            mode: "dev",
+                            session,
+                            redirectTo: returnTo,
+                        },
+                        200,
+                    );
+                }
+                return c.redirect(returnTo, 302);
+            }
+
             const auth = await webUiRuntime.startOidcAuthentication(returnTo);
             if (query.format === "json") {
                 return c.json(
@@ -586,6 +612,32 @@ export function createHttpApp(deps: HttpAppDependencies) {
         const returnTo = normalizeReturnToPath(query.returnTo, mountPath);
 
         try {
+            if (
+                !webUiRuntime.isOidcConfigured() &&
+                webUiRuntime.isLocalDevAuthEnabled()
+            ) {
+                const session = await webUiRuntime.createLocalDevSession();
+                setCookie(c, webUiSessionCookieName, session.sessionId, {
+                    httpOnly: true,
+                    secure: process.env.NODE_ENV === "production",
+                    sameSite: "Lax",
+                    path: "/",
+                    maxAge: webUiSessionCookieTtlSeconds,
+                });
+
+                if (query.format === "json") {
+                    return c.json(
+                        {
+                            mode: "dev",
+                            session,
+                            redirectTo: returnTo,
+                        },
+                        200,
+                    );
+                }
+                return c.redirect(returnTo, 302);
+            }
+
             const auth = await webUiRuntime.startOidcAuthentication(returnTo);
             if (query.format === "json") {
                 return c.json(
@@ -669,6 +721,7 @@ export function createHttpApp(deps: HttpAppDependencies) {
                 {
                     authenticated: false,
                     oidcConfigured: webUiRuntime.isOidcConfigured(),
+                    devAuthAvailable: webUiRuntime.isLocalDevAuthEnabled(),
                     missingOidcFields: webUiRuntime.getOidcMissingConfigFields(),
                 },
                 200,
@@ -680,6 +733,7 @@ export function createHttpApp(deps: HttpAppDependencies) {
                 authenticated: true,
                 session,
                 oidcConfigured: webUiRuntime.isOidcConfigured(),
+                devAuthAvailable: webUiRuntime.isLocalDevAuthEnabled(),
             },
             200,
         );

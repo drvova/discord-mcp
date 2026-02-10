@@ -111,6 +111,7 @@ DISCORD_GUILD_ID=your_guild_id_here
 # DISCORD_WEB_UI_STORE_PATH=./data/web-ui-state.json
 # DISCORD_WEB_UI_SESSION_COOKIE_NAME=discord_mcp_web_session
 # DISCORD_WEB_UI_SESSION_TTL_SECONDS=604800
+# DISCORD_WEB_ALLOW_DEV_AUTH=true
 # DISCORD_WEB_OIDC_ISSUER=https://issuer.example.com
 # DISCORD_WEB_OIDC_CLIENT_ID=...
 # DISCORD_WEB_OIDC_CLIENT_SECRET=...
@@ -171,6 +172,7 @@ The MCP JSON-RPC contract on `POST /` is unchanged (`initialize`, `tools/list`, 
 
 - The UI is served by Hono at `/app/`.
 - Login starts at `/auth/codex/start` and returns via `/auth/codex/callback` (OIDC aliases are also supported).
+- When OIDC is not configured and `DISCORD_WEB_ALLOW_DEV_AUTH=true` (default outside production), `/auth/codex/start` creates a local dev session automatically.
 - Session state is cookie-based and persisted in `DISCORD_WEB_UI_STORE_PATH`.
 - Chat planning uses dynamic operation generation and defaults write operations to `dryRun: true`.
 - Live writes require explicit confirmation in the UI (`confirmWrites: true`).

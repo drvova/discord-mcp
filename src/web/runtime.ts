@@ -105,7 +105,7 @@ type OidcProfile = {
 };
 
 type StoredSessionRecord = WebUiSessionPublic & {
-    provider: "oidc";
+    provider: "oidc" | "dev";
 };
 
 type StoredOidcStateRecord = {
@@ -155,6 +155,7 @@ export type WebUiRuntimeConfig = {
         model: string;
         maxActions: number;
     };
+    allowLocalDevAuth: boolean;
 };
 
 function normalizeUrl(value: string): string {
@@ -263,6 +264,7 @@ export class WebUiRuntime {
     private readonly oidcStateTtlSeconds: number;
     private readonly oidcConfig: WebUiRuntimeConfig["oidc"];
     private readonly plannerConfig: Required<WebUiRuntimeConfig["planner"]>;
+    private readonly allowLocalDevAuth: boolean;
     private readonly executeCall: WebUiExecutionAdapter;
 
     private loaded = false;
@@ -288,6 +290,7 @@ export class WebUiRuntime {
             model: config.planner.model,
             maxActions: Math.max(1, config.planner.maxActions),
         };
+        this.allowLocalDevAuth = config.allowLocalDevAuth;
         this.executeCall = executeCall;
     }
 
@@ -312,6 +315,10 @@ export class WebUiRuntime {
 
     isOidcConfigured(): boolean {
         return this.getOidcMissingConfigFields().length === 0;
+    }
+
+    isLocalDevAuthEnabled(): boolean {
+        return this.allowLocalDevAuth;
     }
 
     async getSession(sessionId: string): Promise<WebUiSessionPublic | null> {
@@ -358,6 +365,31 @@ export class WebUiRuntime {
         this.state.sessions[sessionId] = session;
         await this.persistState();
 
+        return clonePublicSession(session);
+    }
+
+    async createLocalDevSession(): Promise<WebUiSessionPublic> {
+        await this.loadStateIfNeeded();
+        if (!this.allowLocalDevAuth) {
+            throw new Error("Local dev auth is disabled");
+        }
+
+        const now = Date.now();
+        const sessionId = randomUUID();
+        const session: StoredSessionRecord = {
+            sessionId,
+            provider: "dev",
+            subject: "local-dev",
+            name: "Local Dev Session",
+            email: undefined,
+            defaultMode: "bot",
+            rememberMode: true,
+            createdAt: toIsoTime(now),
+            expiresAt: toIsoTime(now + this.sessionTtlSeconds * 1000),
+        };
+
+        this.state.sessions[sessionId] = session;
+        await this.persistState();
         return clonePublicSession(session);
     }
 
