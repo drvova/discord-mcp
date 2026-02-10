@@ -72,6 +72,9 @@
     let creatingThread = false;
     let uiError = "";
     let authError = "";
+    let workspaceId = "";
+
+    const workspaceStorageKey = "discord_mcp_workspace_id";
 
     function modeDefaultIdentity(nextMode: Mode): string {
         return nextMode === "bot" ? "default-bot" : "default-user";
@@ -84,6 +87,12 @@
 
     async function initialize(): Promise<void> {
         try {
+            try {
+                workspaceId = window.localStorage.getItem(workspaceStorageKey) || "";
+            } catch {
+                workspaceId = "";
+            }
+
             const params = new URLSearchParams(window.location.search);
             const authErrorParam = params.get("authError");
             if (authErrorParam) {
@@ -371,7 +380,30 @@
     }
 
     function startOidcLogin(): void {
-        window.location.href = `/auth/codex/start?returnTo=${encodeURIComponent("/app/")}`;
+        const params = new URLSearchParams({
+            returnTo: "/app/",
+        });
+        const normalizedWorkspaceId = workspaceId.trim();
+
+        if (normalizedWorkspaceId.length > 0) {
+            params.set("workspaceId", normalizedWorkspaceId);
+            try {
+                window.localStorage.setItem(
+                    workspaceStorageKey,
+                    normalizedWorkspaceId,
+                );
+            } catch {
+                // ignore localStorage failures
+            }
+        } else {
+            try {
+                window.localStorage.removeItem(workspaceStorageKey);
+            } catch {
+                // ignore localStorage failures
+            }
+        }
+
+        window.location.href = `/auth/codex/start?${params.toString()}`;
     }
 
     function onModeChange(nextMode: Mode): void {
@@ -426,6 +458,14 @@
                     {/if}
                 </div>
             {/if}
+
+            <label class="auth-field">
+                Workspace ID (optional)
+                <input
+                    bind:value={workspaceId}
+                    placeholder="ws_... (forces a specific workspace)"
+                />
+            </label>
 
             <button class="primary" on:click={startOidcLogin}>
                 Sign In (Codex-Style)

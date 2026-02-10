@@ -82,6 +82,14 @@ small {
     line-height: 1.6;
 }
 
+.auth-field {
+    display: grid;
+    gap: 0.35rem;
+    margin-bottom: 0.8rem;
+    font-size: 0.82rem;
+    color: var(--muted);
+}
+
 .workspace {
     min-height: 100%;
     padding: 1rem;

@@ -127,6 +127,8 @@ DISCORD_GUILD_ID=your_guild_id_here
 # DISCORD_WEB_OIDC_PKCE_REQUIRED=true
 # DISCORD_WEB_OIDC_ID_TOKEN_ADD_ORGANIZATIONS=true
 # DISCORD_WEB_OIDC_CODEX_SIMPLIFIED_FLOW=true
+# DISCORD_WEB_OIDC_ORIGINATOR=codex_cli_rs
+# DISCORD_WEB_OIDC_ALLOWED_WORKSPACE_ID=ws_...
 # DISCORD_WEB_OIDC_REQUESTED_TOKEN=openai-api-key
 # DISCORD_WEB_PLANNER_API_KEY=...
 # DISCORD_WEB_PLANNER_BASE_URL=https://api.openai.com/v1
@@ -202,6 +204,7 @@ The MCP JSON-RPC contract on `POST /` is unchanged (`initialize`, `tools/list`, 
 
 - The UI is served by Hono at `/app/`.
 - Login starts at `/auth/codex/start` and returns via `/auth/callback` by default (`/auth/codex/callback` and `/auth/oidc/callback` are aliases).
+- Codex login sends Codex-compatible auth parameters by default, including `originator=codex_cli_rs`, and accepts optional workspace pinning via `/auth/codex/start?workspaceId=ws_...` (`allowed_workspace_id`).
 - When OIDC is not configured and `DISCORD_WEB_ALLOW_DEV_AUTH=true` (default outside production), `/auth/codex/start` creates a local dev session automatically.
 - After Codex OAuth callback, token exchange (`requested_token=openai-api-key`) must succeed before a web session is created.
 - If token exchange fails (for example `missing organization_id`), login is rejected and the UI shows an actionable auth error.

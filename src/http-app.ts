@@ -71,6 +71,7 @@ const OidcCallbackQuerySchema = z
 const OidcStartQuerySchema = z.object({
     returnTo: z.string().optional(),
     format: z.enum(["redirect", "json"]).optional(),
+    workspaceId: z.string().trim().min(1).optional(),
 });
 
 const SessionIdentityUpdateSchema = z.object({
@@ -608,6 +609,11 @@ export function createHttpApp(deps: HttpAppDependencies) {
     app.get("/auth/oidc/start", oidcStartQueryValidator, async (c) => {
         const query = c.req.valid("query");
         const returnTo = normalizeReturnToPath(query.returnTo, mountPath);
+        const workspaceId = query.workspaceId?.trim();
+        const extraAuthorizationParams =
+            workspaceId && workspaceId.length > 0
+                ? { allowed_workspace_id: workspaceId }
+                : undefined;
 
         try {
             if (
@@ -638,6 +644,7 @@ export function createHttpApp(deps: HttpAppDependencies) {
 
             const auth = await webUiRuntime.startOidcAuthentication({
                 returnTo,
+                extraAuthorizationParams,
             });
             if (query.format === "json") {
                 return c.json(
@@ -659,6 +666,11 @@ export function createHttpApp(deps: HttpAppDependencies) {
     app.get("/auth/codex/start", oidcStartQueryValidator, async (c) => {
         const query = c.req.valid("query");
         const returnTo = normalizeReturnToPath(query.returnTo, mountPath);
+        const workspaceId = query.workspaceId?.trim();
+        const extraAuthorizationParams =
+            workspaceId && workspaceId.length > 0
+                ? { allowed_workspace_id: workspaceId }
+                : undefined;
 
         try {
             if (
@@ -691,6 +703,7 @@ export function createHttpApp(deps: HttpAppDependencies) {
             const auth = await webUiRuntime.startOidcAuthentication({
                 returnTo,
                 redirectUri,
+                extraAuthorizationParams,
             });
             if (query.format === "json") {
                 return c.json(

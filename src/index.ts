@@ -702,12 +702,21 @@ async function main() {
                 .split(/\s+/)
                 .map((scope) => scope.trim())
                 .filter((scope) => scope.length > 0);
-            const oidcExtraAuthorizationParams = {
+            const oidcExtraAuthorizationParams: Record<string, string> = {
                 id_token_add_organizations:
                     process.env.DISCORD_WEB_OIDC_ID_TOKEN_ADD_ORGANIZATIONS || "true",
                 codex_cli_simplified_flow:
                     process.env.DISCORD_WEB_OIDC_CODEX_SIMPLIFIED_FLOW || "true",
+                originator:
+                    process.env.DISCORD_WEB_OIDC_ORIGINATOR || "codex_cli_rs",
             };
+            const oidcAllowedWorkspaceId = (
+                process.env.DISCORD_WEB_OIDC_ALLOWED_WORKSPACE_ID || ""
+            ).trim();
+            if (oidcAllowedWorkspaceId.length > 0) {
+                oidcExtraAuthorizationParams.allowed_workspace_id =
+                    oidcAllowedWorkspaceId;
+            }
             const allowLocalDevAuth =
                 process.env.DISCORD_WEB_ALLOW_DEV_AUTH !== undefined
                     ? process.env.DISCORD_WEB_ALLOW_DEV_AUTH === "true"
