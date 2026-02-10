@@ -146,6 +146,23 @@ When `MCP_HTTP_PORT` (or `PORT`) is set:
 - `POST /api/chat/execute`
 - `GET /app/` (Svelte web UI when `web/dist` exists)
 
+## Web UI Dev (No Manual Env Wiring)
+
+Use one command to run backend and UI together:
+
+```bash
+npm run web:dev
+```
+
+This starts:
+
+- Hono API server on `http://localhost:3001`
+- Svelte/Vite dev UI on `http://localhost:5173`
+- Vite proxy for `/api`, `/auth`, `/oauth`, `/sse`, `/message`, and `/health` to `:3001`
+
+If only `npm run ui:dev` is running, requests such as `/api/session` and
+`/auth/codex/start` will fail with `ECONNREFUSED 127.0.0.1:3001`.
+
 ## Typed HTTP Client (`hc`)
 
 You can use the generated typed client from Hono route types:
