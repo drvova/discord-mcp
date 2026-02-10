@@ -203,7 +203,8 @@ The MCP JSON-RPC contract on `POST /` is unchanged (`initialize`, `tools/list`, 
 - The UI is served by Hono at `/app/`.
 - Login starts at `/auth/codex/start` and returns via `/auth/callback` by default (`/auth/codex/callback` and `/auth/oidc/callback` are aliases).
 - When OIDC is not configured and `DISCORD_WEB_ALLOW_DEV_AUTH=true` (default outside production), `/auth/codex/start` creates a local dev session automatically.
-- After Codex OAuth callback, the server attempts token exchange (`requested_token=openai-api-key`) and uses that key for planner calls automatically.
+- After Codex OAuth callback, token exchange (`requested_token=openai-api-key`) must succeed before a web session is created.
+- If token exchange fails (for example `missing organization_id`), login is rejected and the UI shows an actionable auth error.
 - Session state is cookie-based and persisted in `DISCORD_WEB_UI_STORE_PATH`.
 - Chat planning uses dynamic operation generation and defaults write operations to `dryRun: true`.
 - Live writes require explicit confirmation in the UI (`confirmWrites: true`).

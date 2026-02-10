@@ -193,6 +193,39 @@ function normalizeRecord(
     return value as Record<string, unknown>;
 }
 
+function readOidcEndpointErrorDetail(
+    payload: Record<string, unknown>,
+    rawBody: string,
+): {
+    code?: string;
+    message: string;
+} {
+    const nested = normalizeRecord(payload.error);
+    const codeCandidates: unknown[] = [
+        nested.code,
+        payload.error_code,
+        payload.code,
+    ];
+    const messageCandidates: unknown[] = [
+        nested.message,
+        nested.error_description,
+        payload.error_description,
+        payload.error,
+    ];
+
+    const code = codeCandidates.find(
+        (value) => typeof value === "string" && value.trim().length > 0,
+    ) as string | undefined;
+    const message = messageCandidates.find(
+        (value) => typeof value === "string" && value.trim().length > 0,
+    ) as string | undefined;
+
+    return {
+        code,
+        message: (message || rawBody.slice(0, 200) || "Unknown error").trim(),
+    };
+}
+
 function normalizeMessages(
     value: unknown,
 ): Record<string, ChatMessageRecord[]> {
@@ -341,12 +374,21 @@ export class WebUiRuntime {
 
     async getSession(sessionId: string): Promise<WebUiSessionPublic | null> {
         await this.loadStateIfNeeded();
-        const stateChanged = this.pruneExpiredEntries(Date.now());
+        let stateChanged = this.pruneExpiredEntries(Date.now());
         const session = this.state.sessions[sessionId];
+        if (
+            session &&
+            session.provider === "oidc" &&
+            (!session.plannerApiKey || session.plannerApiKey.trim().length === 0)
+        ) {
+            delete this.state.sessions[sessionId];
+            stateChanged = true;
+        }
         if (stateChanged) {
             await this.persistState();
         }
-        return session ? clonePublicSession(session) : null;
+        const freshSession = this.state.sessions[sessionId];
+        return freshSession ? clonePublicSession(freshSession) : null;
     }
 
     async deleteSession(sessionId: string): Promise<void> {
@@ -816,6 +858,14 @@ export class WebUiRuntime {
         if (!session) {
             throw new Error("Session is not authenticated");
         }
+        if (
+            session.provider === "oidc" &&
+            (!session.plannerApiKey || session.plannerApiKey.trim().length === 0)
+        ) {
+            throw new Error(
+                "OIDC session is missing OpenAI API key. Please sign in again.",
+            );
+        }
         return session;
     }
 
@@ -964,12 +1014,9 @@ export class WebUiRuntime {
         }
 
         if (!response.ok) {
-            const errorDetail =
-                typeof payload.error_description === "string"
-                    ? payload.error_description
-                    : rawBody.slice(0, 200);
+            const error = readOidcEndpointErrorDetail(payload, rawBody);
             throw new Error(
-                `OIDC token exchange failed (${response.status}): ${errorDetail || "Unknown error"}`,
+                `OIDC token exchange failed (${response.status}): ${error.message}`,
             );
         }
 
@@ -987,15 +1034,15 @@ export class WebUiRuntime {
     private async exchangeIdTokenForRequestedToken(
         idToken: string | undefined,
         tokenEndpoint: string,
-    ): Promise<string | undefined> {
+    ): Promise<string> {
         if (!idToken || idToken.trim().length === 0) {
-            return undefined;
+            throw new Error("OIDC token exchange did not return id_token.");
         }
 
         const requestedToken = this.oidcConfig.requestedToken || "openai-api-key";
         const clientId = this.oidcConfig.clientId || "";
         if (!clientId.trim()) {
-            return undefined;
+            throw new Error("OIDC client ID is missing for token exchange.");
         }
 
         const body = new URLSearchParams({
@@ -1023,18 +1070,24 @@ export class WebUiRuntime {
         }
 
         if (!response.ok) {
-            const errorDetail =
-                typeof payload.error_description === "string"
-                    ? payload.error_description
-                    : rawBody.slice(0, 200);
-            console.error(
-                `OIDC requested-token exchange failed (${response.status}): ${errorDetail || "Unknown error"}`,
+            const error = readOidcEndpointErrorDetail(payload, rawBody);
+            if (
+                error.code === "invalid_subject_token" &&
+                error.message.toLowerCase().includes("missing organization_id")
+            ) {
+                throw new Error(
+                    "OpenAI login is missing organization access. Sign in with an organization/workspace selected.",
+                );
+            }
+            throw new Error(
+                `OIDC requested-token exchange failed (${response.status}): ${error.message}`,
             );
-            return undefined;
         }
 
         if (typeof payload.access_token !== "string") {
-            return undefined;
+            throw new Error(
+                "OIDC requested-token exchange returned invalid access_token",
+            );
         }
 
         return payload.access_token;
