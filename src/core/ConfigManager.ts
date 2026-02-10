@@ -108,23 +108,4 @@ export class ConfigManager {
     getConfig(): AutomationConfig {
         return { ...this.config };
     }
-
-    isActionAllowed(action: string): boolean {
-        // If allowedActions is specified, only those actions are allowed
-        if (this.config.allowedActions.length > 0) {
-            return this.config.allowedActions.includes(action);
-        }
-
-        // If deniedActions is specified, those actions are not allowed
-        if (this.config.deniedActions.length > 0) {
-            return !this.config.deniedActions.includes(action);
-        }
-
-        // If neither is specified, all actions are allowed
-        return true;
-    }
-
-    updateConfig(newConfig: Partial<AutomationConfig>): void {
-        this.config = { ...this.config, ...newConfig };
-    }
 }

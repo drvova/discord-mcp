@@ -95,12 +95,6 @@ export class OAuthManager {
         this.defaultGuildId = config.defaultGuildId;
     }
 
-    setClientId(clientId: string): void {
-        if (clientId.trim().length > 0) {
-            this.clientId = clientId.trim();
-        }
-    }
-
     getMissingFullFlowConfigFields(): string[] {
         const missing: string[] = [];
 

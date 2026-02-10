@@ -80,20 +80,4 @@ export class ErrorHandler {
     // Handle unknown errors
     throw new Error(`Unknown error occurred: ${String(error)}`);
   }
-  
-  static createRateLimitError(retryAfter: number, global: boolean): RateLimitError {
-    return new RateLimitError(
-      `Rate limited. Try again in ${retryAfter}ms`,
-      retryAfter,
-      global
-    );
-  }
-  
-  static createPermissionError(message: string): PermissionError {
-    return new PermissionError(`Permission denied: ${message}`);
-  }
-  
-  static createValidationError(message: string): ValidationError {
-    return new ValidationError(`Invalid input: ${message}`);
-  }
 }

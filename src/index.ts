@@ -55,22 +55,6 @@ function getOAuthManager(): OAuthManager {
     return oauthManager;
 }
 
-async function createBotInviteLinkText(
-    guildId?: string,
-    disableGuildSelect?: boolean,
-): Promise<string> {
-    const auth = await getOAuthManager().createAuthorizeLink({
-        guildId,
-        disableGuildSelect,
-    });
-
-    return `Discord bot install URL (Administrator):
-${auth.authorizeUrl}
-- Permissions: Administrator (bit 8)
-- Scopes: ${auth.scopes.join(", ")}
-- Expires: ${auth.expiresAt}`;
-}
-
 function parseBooleanQuery(value: string | null): boolean | undefined {
     if (value === null) {
         return undefined;

@@ -2,18 +2,15 @@ import { DiscordService } from "../discord-service.js";
 import { ConfigManager } from "./ConfigManager.js";
 import { Logger } from "./Logger.js";
 import { ErrorHandler } from "./ErrorHandler.js";
-import { RateLimiter } from "./RateLimiter.js";
 
 export class DiscordController {
     private discordService: DiscordService;
     private configManager: ConfigManager;
     private logger: Logger;
-    private rateLimiter: RateLimiter;
 
     constructor() {
         this.configManager = ConfigManager.getInstance();
         this.logger = Logger.getInstance();
-        this.rateLimiter = RateLimiter.getInstance();
 
         // These will be initialized in initialize()
         this.discordService = null as any;
