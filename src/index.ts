@@ -739,6 +739,9 @@ async function main() {
                         pkceRequired:
                             process.env.DISCORD_WEB_OIDC_PKCE_REQUIRED !== "false",
                         extraAuthorizationParams: oidcExtraAuthorizationParams,
+                        requestedToken:
+                            process.env.DISCORD_WEB_OIDC_REQUESTED_TOKEN ||
+                            "openai-api-key",
                     },
                     planner: {
                         apiKey: process.env.DISCORD_WEB_PLANNER_API_KEY,

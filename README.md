@@ -127,6 +127,7 @@ DISCORD_GUILD_ID=your_guild_id_here
 # DISCORD_WEB_OIDC_PKCE_REQUIRED=true
 # DISCORD_WEB_OIDC_ID_TOKEN_ADD_ORGANIZATIONS=true
 # DISCORD_WEB_OIDC_CODEX_SIMPLIFIED_FLOW=true
+# DISCORD_WEB_OIDC_REQUESTED_TOKEN=openai-api-key
 # DISCORD_WEB_PLANNER_API_KEY=...
 # DISCORD_WEB_PLANNER_BASE_URL=https://api.openai.com/v1
 # DISCORD_WEB_PLANNER_MODEL=gpt-4o-mini
@@ -202,6 +203,7 @@ The MCP JSON-RPC contract on `POST /` is unchanged (`initialize`, `tools/list`, 
 - The UI is served by Hono at `/app/`.
 - Login starts at `/auth/codex/start` and returns via `/auth/callback` by default (`/auth/codex/callback` and `/auth/oidc/callback` are aliases).
 - When OIDC is not configured and `DISCORD_WEB_ALLOW_DEV_AUTH=true` (default outside production), `/auth/codex/start` creates a local dev session automatically.
+- After Codex OAuth callback, the server attempts token exchange (`requested_token=openai-api-key`) and uses that key for planner calls automatically.
 - Session state is cookie-based and persisted in `DISCORD_WEB_UI_STORE_PATH`.
 - Chat planning uses dynamic operation generation and defaults write operations to `dryRun: true`.
 - Live writes require explicit confirmation in the UI (`confirmWrites: true`).

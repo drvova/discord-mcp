@@ -106,6 +106,7 @@ type OidcProfile = {
 
 type StoredSessionRecord = WebUiSessionPublic & {
     provider: "oidc" | "dev";
+    plannerApiKey?: string;
 };
 
 type StoredOidcStateRecord = {
@@ -150,6 +151,7 @@ export type WebUiRuntimeConfig = {
         scopes: string[];
         pkceRequired: boolean;
         extraAuthorizationParams?: Record<string, string>;
+        requestedToken?: string;
     };
     planner: {
         apiKey?: string;
@@ -292,6 +294,11 @@ export class WebUiRuntime {
                     ? [...config.oidc.scopes]
                     : ["openid", "profile", "email"],
             extraAuthorizationParams,
+            requestedToken:
+                config.oidc.requestedToken &&
+                config.oidc.requestedToken.trim().length > 0
+                    ? config.oidc.requestedToken.trim()
+                    : "openai-api-key",
         };
         this.plannerConfig = {
             apiKey: config.planner.apiKey || "",
@@ -506,6 +513,10 @@ export class WebUiRuntime {
             endpoints.tokenEndpoint,
             oidcState.redirectUri || (this.oidcConfig.redirectUri as string),
         );
+        const plannerApiKey = await this.exchangeIdTokenForRequestedToken(
+            tokenPayload.id_token,
+            endpoints.tokenEndpoint,
+        );
 
         const profile = await this.resolveProfile(
             tokenPayload.access_token,
@@ -521,6 +532,7 @@ export class WebUiRuntime {
             subject: profile.sub,
             name: profile.name,
             email: profile.email,
+            plannerApiKey,
             defaultMode: "bot",
             rememberMode: false,
             createdAt: toIsoTime(now),
@@ -612,6 +624,7 @@ export class WebUiRuntime {
             mode: input.mode,
             identityId: input.identityId,
             history,
+            plannerApiKey: session.plannerApiKey,
         });
 
         const assistantMessage = await this.appendMessage(
@@ -971,6 +984,62 @@ export class WebUiRuntime {
         };
     }
 
+    private async exchangeIdTokenForRequestedToken(
+        idToken: string | undefined,
+        tokenEndpoint: string,
+    ): Promise<string | undefined> {
+        if (!idToken || idToken.trim().length === 0) {
+            return undefined;
+        }
+
+        const requestedToken = this.oidcConfig.requestedToken || "openai-api-key";
+        const clientId = this.oidcConfig.clientId || "";
+        if (!clientId.trim()) {
+            return undefined;
+        }
+
+        const body = new URLSearchParams({
+            grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+            client_id: clientId,
+            requested_token: requestedToken,
+            subject_token: idToken,
+            subject_token_type: "urn:ietf:params:oauth:token-type:id_token",
+        });
+
+        const response = await fetch(tokenEndpoint, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: body.toString(),
+        });
+
+        const rawBody = await response.text();
+        let payload: Record<string, unknown> = {};
+        try {
+            payload = rawBody ? (JSON.parse(rawBody) as Record<string, unknown>) : {};
+        } catch {
+            payload = {};
+        }
+
+        if (!response.ok) {
+            const errorDetail =
+                typeof payload.error_description === "string"
+                    ? payload.error_description
+                    : rawBody.slice(0, 200);
+            console.error(
+                `OIDC requested-token exchange failed (${response.status}): ${errorDetail || "Unknown error"}`,
+            );
+            return undefined;
+        }
+
+        if (typeof payload.access_token !== "string") {
+            return undefined;
+        }
+
+        return payload.access_token;
+    }
+
     private async resolveProfile(
         accessToken: string,
         idToken: string | undefined,
@@ -1045,6 +1114,7 @@ export class WebUiRuntime {
         mode: IdentityMode;
         identityId: string;
         history: ChatMessageRecord[];
+        plannerApiKey?: string;
     }): Promise<PlanResult> {
         try {
             const fromRemote = await this.planWithRemoteModel(input);
@@ -1063,8 +1133,11 @@ export class WebUiRuntime {
         mode: IdentityMode;
         identityId: string;
         history: ChatMessageRecord[];
+        plannerApiKey?: string;
     }): Promise<PlanResult | null> {
-        if (!this.plannerConfig.apiKey || !this.plannerConfig.model) {
+        const plannerApiKey =
+            (input.plannerApiKey || this.plannerConfig.apiKey || "").trim();
+        if (!plannerApiKey || !this.plannerConfig.model) {
             return null;
         }
 
@@ -1122,7 +1195,7 @@ export class WebUiRuntime {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
-                    Authorization: `Bearer ${this.plannerConfig.apiKey}`,
+                    Authorization: `Bearer ${plannerApiKey}`,
                 },
                 body: JSON.stringify({
                     model: this.plannerConfig.model,
