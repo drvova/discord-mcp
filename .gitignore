@@ -79,3 +79,4 @@ config/production.json
 *.temp
 debug.log
 audit.log
+data/oauth-sessions.json
