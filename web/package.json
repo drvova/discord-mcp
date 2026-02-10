@@ -3,17 +3,19 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "dev": "svelte-kit sync && vite dev --host 127.0.0.1 --port 5173",
+    "build": "svelte-kit sync && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 5173"
   },
   "dependencies": {
     "hono": "^4.11.9",
-    "svelte": "^4.2.19"
+    "svelte": "^5.40.0"
   },
   "devDependencies": {
-    "@sveltejs/vite-plugin-svelte": "^3.1.2",
-    "typescript": "^5.8.3",
-    "vite": "^5.4.11"
+    "@rollup/rollup-linux-x64-gnu": "^4.57.1",
+    "@sveltejs/adapter-static": "^3.0.8",
+    "@sveltejs/kit": "^2.27.0",
+    "@sveltejs/vite-plugin-svelte": "^4.0.4",
+    "typescript": "^5.8.3"
   }
 }

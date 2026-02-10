@@ -263,7 +263,6 @@ export function createHttpApp(deps: HttpAppDependencies) {
     const webDist = resolve(webUiDistPath);
     const webIndexPath = resolve(webDist, "index.html");
     const webIndexAvailable = existsSync(webIndexPath);
-    let webIndexCache: string | null = null;
 
     const readWebIndex = async (): Promise<string> => {
         if (!webIndexAvailable) {
@@ -271,11 +270,7 @@ export function createHttpApp(deps: HttpAppDependencies) {
                 `Web UI build not found. Expected index at ${webIndexPath}`,
             );
         }
-        if (webIndexCache !== null) {
-            return webIndexCache;
-        }
-        webIndexCache = await readFile(webIndexPath, "utf8");
-        return webIndexCache;
+        return readFile(webIndexPath, "utf8");
     };
 
     const getAuthenticatedSession = async (
@@ -905,13 +900,21 @@ export function createHttpApp(deps: HttpAppDependencies) {
     });
 
     if (webIndexAvailable) {
+        // Support SvelteKit static output under /app/_app/* and legacy Vite assets.
+        const webAssetHandler = serveStatic({
+            root: webDist,
+            rewriteRequestPath: (path) => path.replace(mountPath, ""),
+        });
+
+        app.use(`${mountPath}/_app/*`, webAssetHandler);
         app.use(
             `${mountPath}/assets/*`,
-            serveStatic({
-                root: webDist,
-                rewriteRequestPath: (path) => path.replace(mountPath, ""),
-            }),
+            webAssetHandler,
         );
+        app.use(`${mountPath}/favicon.ico`, webAssetHandler);
+        app.use(`${mountPath}/robots.txt`, webAssetHandler);
+        app.use(`${mountPath}/manifest.json`, webAssetHandler);
+        app.use(`${mountPath}/service-worker.js`, webAssetHandler);
 
         app.get(mountPath, (c) => c.redirect(`${mountPath}/`, 302));
         app.get(`${mountPath}/`, async (c) => {

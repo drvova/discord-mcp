@@ -674,7 +674,7 @@ async function main() {
 
         if (useHttp) {
             const webUiMountPath = process.env.DISCORD_WEB_UI_MOUNT_PATH || "/app";
-            const webUiDistPath = process.env.DISCORD_WEB_UI_DIST_PATH || "./web/dist";
+            const webUiDistPath = process.env.DISCORD_WEB_UI_DIST_PATH || "./web/build";
             const webUiStorePath =
                 process.env.DISCORD_WEB_UI_STORE_PATH || "./data/web-ui-state.json";
             const webUiSessionCookieName =

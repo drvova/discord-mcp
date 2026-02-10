@@ -107,7 +107,7 @@ DISCORD_GUILD_ID=your_guild_id_here
 
 # Optional web UI + OIDC bridge
 # DISCORD_WEB_UI_MOUNT_PATH=/app
-# DISCORD_WEB_UI_DIST_PATH=./web/dist
+# DISCORD_WEB_UI_DIST_PATH=./web/build
 # DISCORD_WEB_UI_STORE_PATH=./data/web-ui-state.json
 # DISCORD_WEB_UI_SESSION_COOKIE_NAME=discord_mcp_web_session
 # DISCORD_WEB_UI_SESSION_TTL_SECONDS=604800
@@ -144,24 +144,22 @@ When `MCP_HTTP_PORT` (or `PORT`) is set:
 - `GET /api/chat/threads/:threadId/messages`
 - `POST /api/chat/plan`
 - `POST /api/chat/execute`
-- `GET /app/` (Svelte web UI when `web/dist` exists)
+- `GET /app/` (SvelteKit web UI when `web/build` exists)
 
-## Web UI Dev (No Manual Env Wiring)
+## Web UI Runtime (Single Server)
 
-Use one command to run backend and UI together:
+Use one command to build UI + backend and run Hono on `:3001`:
 
 ```bash
 npm run web:dev
 ```
 
-This starts:
+This flow:
 
-- Hono API server on `http://localhost:3001`
-- Svelte/Vite dev UI on `http://localhost:5173`
-- Vite proxy for `/api`, `/auth`, `/oauth`, `/sse`, `/message`, and `/health` to `:3001`
-
-If only `npm run ui:dev` is running, requests such as `/api/session` and
-`/auth/codex/start` will fail with `ECONNREFUSED 127.0.0.1:3001`.
+- Builds the SvelteKit app into `web/build`
+- Compiles backend TypeScript
+- Runs a single Hono server on `http://localhost:3001`
+- Serves UI directly at `http://localhost:3001/app/` (no Vite proxy required)
 
 Missing Discord OAuth callback env vars (`DISCORD_CLIENT_SECRET`,
 `DISCORD_OAUTH_REDIRECT_URI`) no longer block HTTP startup; only the
@@ -281,6 +279,5 @@ If you expect thousands of operations in the MCP registry, this is by design:
 - `npm start` - run compiled stdio server
 - `npm run web` - run compiled Hono HTTP/SSE server on port 3001
 - `npm run web:build` - build then run HTTP/SSE
-- `npm run ui:dev` - run Svelte web UI dev server (`web/`)
-- `npm run ui:build` - build Svelte web UI into `web/dist`
+- `npm run ui:build` - build SvelteKit web UI into `web/build`
 - `npm run web:full` - build UI + backend and run HTTP server

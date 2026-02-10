@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { api } from "./lib/api";
+    import { api } from "$lib/api";
 
     type Mode = "bot" | "user";
 
@@ -530,7 +530,7 @@
                         bind:value={composer}
                         placeholder="Describe what you want the bot to do..."
                         rows="4"
-                    />
+                    ></textarea>
                     <button class="primary" type="submit" disabled={planning || executing}>
                         {planning ? "Planning..." : "Plan"}
                     </button>
