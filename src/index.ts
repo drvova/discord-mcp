@@ -639,21 +639,33 @@ async function main() {
         if (useHttp) {
             const missingOAuthConfig =
                 oauthManager.getMissingFullFlowConfigFields();
-            if (missingOAuthConfig.length > 0) {
-                throw new Error(
-                    `Missing OAuth configuration for startup callback flow: ${missingOAuthConfig.join(", ")}`,
+
+            try {
+                const startupInvite = await oauthManager.createAuthorizeLink({
+                    guildId: config.oauth.defaultGuildId,
+                });
+                console.error(
+                    `Discord bot install URL (Administrator): ${startupInvite.authorizeUrl}`,
+                );
+                console.error(
+                    `OAuth callback URI: ${config.oauth.redirectUri}`,
+                );
+            } catch (error) {
+                const message =
+                    error instanceof Error ? error.message : String(error);
+                console.error(
+                    `OAuth startup install link unavailable: ${message}`,
                 );
             }
 
-            const startupInvite = await oauthManager.createAuthorizeLink({
-                guildId: config.oauth.defaultGuildId,
-            });
-            console.error(
-                `Discord bot install URL (Administrator): ${startupInvite.authorizeUrl}`,
-            );
-            console.error(
-                `OAuth callback URI: ${config.oauth.redirectUri}`,
-            );
+            if (missingOAuthConfig.length > 0) {
+                console.error(
+                    `OAuth callback flow is partially configured. Missing: ${missingOAuthConfig.join(", ")}`,
+                );
+                console.error(
+                    "Server startup will continue so web UI auth and API routes remain available.",
+                );
+            }
         } else {
             console.error(
                 "OAuth startup install link skipped: HTTP mode is disabled (set MCP_HTTP_PORT to enable callback flow).",

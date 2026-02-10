@@ -163,6 +163,10 @@ This starts:
 If only `npm run ui:dev` is running, requests such as `/api/session` and
 `/auth/codex/start` will fail with `ECONNREFUSED 127.0.0.1:3001`.
 
+Missing Discord OAuth callback env vars (`DISCORD_CLIENT_SECRET`,
+`DISCORD_OAUTH_REDIRECT_URI`) no longer block HTTP startup; only the
+`/oauth/discord/*` callback exchange remains unavailable until configured.
+
 ## Typed HTTP Client (`hc`)
 
 You can use the generated typed client from Hono route types:
