@@ -237,6 +237,24 @@ function normalizeReturnToPath(value: string | undefined, mountPath: string): st
     return candidate;
 }
 
+function getRequestOrigin(c: Context<{ Bindings: HttpBindings }>): string {
+    const forwardedProto = c.req.header("x-forwarded-proto");
+    const forwardedHost = c.req.header("x-forwarded-host");
+    const host = forwardedHost || c.req.header("host");
+    if (host && forwardedProto) {
+        const protocol = forwardedProto.split(",")[0]?.trim() || "http";
+        return `${protocol}://${host}`;
+    }
+    if (host) {
+        const protocol =
+            c.req.url.startsWith("https://") || process.env.NODE_ENV === "production"
+                ? "https"
+                : "http";
+        return `${protocol}://${host}`;
+    }
+    return new URL(c.req.url).origin;
+}
+
 export function createHttpApp(deps: HttpAppDependencies) {
     const {
         port,
@@ -584,7 +602,9 @@ export function createHttpApp(deps: HttpAppDependencies) {
                 return c.redirect(returnTo, 302);
             }
 
-            const auth = await webUiRuntime.startOidcAuthentication(returnTo);
+            const auth = await webUiRuntime.startOidcAuthentication({
+                returnTo,
+            });
             if (query.format === "json") {
                 return c.json(
                     {
@@ -633,7 +653,11 @@ export function createHttpApp(deps: HttpAppDependencies) {
                 return c.redirect(returnTo, 302);
             }
 
-            const auth = await webUiRuntime.startOidcAuthentication(returnTo);
+            const redirectUri = `${getRequestOrigin(c)}/auth/callback`;
+            const auth = await webUiRuntime.startOidcAuthentication({
+                returnTo,
+                redirectUri,
+            });
             if (query.format === "json") {
                 return c.json(
                     {
@@ -651,9 +675,10 @@ export function createHttpApp(deps: HttpAppDependencies) {
         }
     });
 
-    app.get("/auth/oidc/callback", oauthCallbackQueryValidator, async (c) => {
-        const query = c.req.valid("query");
-
+    const completeWebUiOidcCallback = async (
+        c: Context<{ Bindings: HttpBindings }>,
+        query: { code: string; state: string },
+    ) => {
         try {
             const callback = await webUiRuntime.completeOidcAuthentication(
                 query.code,
@@ -678,36 +703,17 @@ export function createHttpApp(deps: HttpAppDependencies) {
                 302,
             );
         }
-    });
+    };
 
-    app.get("/auth/codex/callback", oauthCallbackQueryValidator, async (c) => {
-        const query = c.req.valid("query");
-
-        try {
-            const callback = await webUiRuntime.completeOidcAuthentication(
-                query.code,
-                query.state,
-            );
-
-            setCookie(c, webUiSessionCookieName, callback.session.sessionId, {
-                httpOnly: true,
-                secure: process.env.NODE_ENV === "production",
-                sameSite: "Lax",
-                path: "/",
-                maxAge: webUiSessionCookieTtlSeconds,
-            });
-
-            const target = normalizeReturnToPath(callback.returnTo, mountPath);
-            return c.redirect(target, 302);
-        } catch (error) {
-            const message =
-                error instanceof Error ? error.message : String(error);
-            return c.redirect(
-                `${mountPath}/?authError=${encodeURIComponent(message)}`,
-                302,
-            );
-        }
-    });
+    app.get("/auth/oidc/callback", oauthCallbackQueryValidator, async (c) =>
+        completeWebUiOidcCallback(c, c.req.valid("query")),
+    );
+    app.get("/auth/codex/callback", oauthCallbackQueryValidator, async (c) =>
+        completeWebUiOidcCallback(c, c.req.valid("query")),
+    );
+    app.get("/auth/callback", oauthCallbackQueryValidator, async (c) =>
+        completeWebUiOidcCallback(c, c.req.valid("query")),
+    );
 
     app.get("/api/session", async (c) => {
         const session = await getAuthenticatedSession(c);
@@ -935,7 +941,7 @@ export function createHttpApp(deps: HttpAppDependencies) {
             : `\n- ${mountPath}/ - Web chat UI (build missing: run npm --prefix web run build)`;
 
         return c.text(
-            `Discord MCP Server\n\nMCP Remote Usage:\nnpx -y mcp-remote ${host}\n\nEndpoints:\n- GET /sse - SSE connection\n- POST /message - Message handling\n- GET /health - Health check\n- GET /oauth/discord/start - Generate OAuth install URL\n- GET /oauth/discord/callback - OAuth callback handler\n- GET /auth/codex/start - Start Codex-style login flow\n- GET /auth/codex/callback - Complete Codex-style login flow\n- GET /auth/oidc/start - Start OIDC login flow (alias)\n- GET /auth/oidc/callback - Complete OIDC login flow (alias)\n- GET /api/session - Current web session\n- GET /api/chat/threads - Chat thread list${uiState}\n\nActive connections: ${activeTransports.size}`,
+            `Discord MCP Server\n\nMCP Remote Usage:\nnpx -y mcp-remote ${host}\n\nEndpoints:\n- GET /sse - SSE connection\n- POST /message - Message handling\n- GET /health - Health check\n- GET /oauth/discord/start - Generate OAuth install URL\n- GET /oauth/discord/callback - OAuth callback handler\n- GET /auth/codex/start - Start Codex-style login flow\n- GET /auth/codex/callback - Complete Codex-style login flow\n- GET /auth/oidc/start - Start OIDC login flow (alias)\n- GET /auth/oidc/callback - Complete OIDC login flow (alias)\n- GET /auth/callback - Codex-compatible callback alias\n- GET /api/session - Current web session\n- GET /api/chat/threads - Chat thread list${uiState}\n\nActive connections: ${activeTransports.size}`,
             200,
         );
     });

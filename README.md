@@ -112,12 +112,21 @@ DISCORD_GUILD_ID=your_guild_id_here
 # DISCORD_WEB_UI_SESSION_COOKIE_NAME=discord_mcp_web_session
 # DISCORD_WEB_UI_SESSION_TTL_SECONDS=604800
 # DISCORD_WEB_ALLOW_DEV_AUTH=true
+# Defaults (Codex/OpenAI) are used when omitted:
+# issuer=https://auth.openai.com
+# authorization_endpoint=https://auth.openai.com/oauth/authorize
+# token_endpoint=https://auth.openai.com/oauth/token
+# client_id=app_EMoamEEZ73f0CkXaXp7hrann
+# redirect_uri=http://localhost:3001/auth/callback
+# scopes=openid profile email offline_access
 # DISCORD_WEB_OIDC_ISSUER=https://issuer.example.com
 # DISCORD_WEB_OIDC_CLIENT_ID=...
 # DISCORD_WEB_OIDC_CLIENT_SECRET=...
-# DISCORD_WEB_OIDC_REDIRECT_URI=http://localhost:3001/auth/codex/callback
-# DISCORD_WEB_OIDC_SCOPES=openid profile email
+# DISCORD_WEB_OIDC_REDIRECT_URI=http://localhost:3001/auth/callback
+# DISCORD_WEB_OIDC_SCOPES=openid profile email offline_access
 # DISCORD_WEB_OIDC_PKCE_REQUIRED=true
+# DISCORD_WEB_OIDC_ID_TOKEN_ADD_ORGANIZATIONS=true
+# DISCORD_WEB_OIDC_CODEX_SIMPLIFIED_FLOW=true
 # DISCORD_WEB_PLANNER_API_KEY=...
 # DISCORD_WEB_PLANNER_BASE_URL=https://api.openai.com/v1
 # DISCORD_WEB_PLANNER_MODEL=gpt-4o-mini
@@ -133,9 +142,10 @@ When `MCP_HTTP_PORT` (or `PORT`) is set:
 - `GET /oauth/discord/start`
 - `GET /oauth/discord/callback`
 - `GET /auth/codex/start` (primary Codex-style login entrypoint)
-- `GET /auth/codex/callback` (primary callback)
+- `GET /auth/codex/callback` (callback alias)
 - `GET /auth/oidc/start` (alias)
 - `GET /auth/oidc/callback` (alias)
+- `GET /auth/callback` (Codex-compatible primary callback)
 - `GET /api/session`
 - `POST /api/session/logout`
 - `POST /api/session/identity`
@@ -190,7 +200,7 @@ The MCP JSON-RPC contract on `POST /` is unchanged (`initialize`, `tools/list`, 
 ## Web UI Flow
 
 - The UI is served by Hono at `/app/`.
-- Login starts at `/auth/codex/start` and returns via `/auth/codex/callback` (OIDC aliases are also supported).
+- Login starts at `/auth/codex/start` and returns via `/auth/callback` by default (`/auth/codex/callback` and `/auth/oidc/callback` are aliases).
 - When OIDC is not configured and `DISCORD_WEB_ALLOW_DEV_AUTH=true` (default outside production), `/auth/codex/start` creates a local dev session automatically.
 - Session state is cookie-based and persisted in `DISCORD_WEB_UI_STORE_PATH`.
 - Chat planning uses dynamic operation generation and defaults write operations to `dryRun: true`.

@@ -673,6 +673,9 @@ async function main() {
         }
 
         if (useHttp) {
+            const httpPort = Number.parseInt(useHttp, 10) || 3000;
+            const codexDefaultIssuer = "https://auth.openai.com";
+            const codexDefaultClientId = "app_EMoamEEZ73f0CkXaXp7hrann";
             const webUiMountPath = process.env.DISCORD_WEB_UI_MOUNT_PATH || "/app";
             const webUiDistPath = process.env.DISCORD_WEB_UI_DIST_PATH || "./web/build";
             const webUiStorePath =
@@ -693,11 +696,18 @@ async function main() {
                 3,
             );
             const oidcScopes = (
-                process.env.DISCORD_WEB_OIDC_SCOPES || "openid profile email"
+                process.env.DISCORD_WEB_OIDC_SCOPES ||
+                "openid profile email offline_access"
             )
                 .split(/\s+/)
                 .map((scope) => scope.trim())
                 .filter((scope) => scope.length > 0);
+            const oidcExtraAuthorizationParams = {
+                id_token_add_organizations:
+                    process.env.DISCORD_WEB_OIDC_ID_TOKEN_ADD_ORGANIZATIONS || "true",
+                codex_cli_simplified_flow:
+                    process.env.DISCORD_WEB_OIDC_CODEX_SIMPLIFIED_FLOW || "true",
+            };
             const allowLocalDevAuth =
                 process.env.DISCORD_WEB_ALLOW_DEV_AUTH !== undefined
                     ? process.env.DISCORD_WEB_ALLOW_DEV_AUTH === "true"
@@ -709,18 +719,26 @@ async function main() {
                     sessionTtlSeconds: webUiSessionCookieTtlSeconds,
                     oidcStateTtlSeconds,
                     oidc: {
-                        issuer: process.env.DISCORD_WEB_OIDC_ISSUER,
+                        issuer: process.env.DISCORD_WEB_OIDC_ISSUER || codexDefaultIssuer,
                         authorizationEndpoint:
-                            process.env.DISCORD_WEB_OIDC_AUTHORIZATION_ENDPOINT,
-                        tokenEndpoint: process.env.DISCORD_WEB_OIDC_TOKEN_ENDPOINT,
+                            process.env.DISCORD_WEB_OIDC_AUTHORIZATION_ENDPOINT ||
+                            `${codexDefaultIssuer}/oauth/authorize`,
+                        tokenEndpoint:
+                            process.env.DISCORD_WEB_OIDC_TOKEN_ENDPOINT ||
+                            `${codexDefaultIssuer}/oauth/token`,
                         userinfoEndpoint:
                             process.env.DISCORD_WEB_OIDC_USERINFO_ENDPOINT,
-                        clientId: process.env.DISCORD_WEB_OIDC_CLIENT_ID,
+                        clientId:
+                            process.env.DISCORD_WEB_OIDC_CLIENT_ID ||
+                            codexDefaultClientId,
                         clientSecret: process.env.DISCORD_WEB_OIDC_CLIENT_SECRET,
-                        redirectUri: process.env.DISCORD_WEB_OIDC_REDIRECT_URI,
+                        redirectUri:
+                            process.env.DISCORD_WEB_OIDC_REDIRECT_URI ||
+                            `http://localhost:${httpPort}/auth/callback`,
                         scopes: oidcScopes,
                         pkceRequired:
                             process.env.DISCORD_WEB_OIDC_PKCE_REQUIRED !== "false",
+                        extraAuthorizationParams: oidcExtraAuthorizationParams,
                     },
                     planner: {
                         apiKey: process.env.DISCORD_WEB_PLANNER_API_KEY,
@@ -784,7 +802,7 @@ async function main() {
                 },
             );
 
-            const port = Number.parseInt(useHttp, 10) || 3000;
+            const port = httpPort;
             const app = createHttpApp({
                 port,
                 server,
@@ -823,6 +841,9 @@ async function main() {
             );
             console.error(
                 `OIDC alias start: http://localhost:${port}/auth/oidc/start`,
+            );
+            console.error(
+                `Codex-compatible callback: http://localhost:${port}/auth/callback`,
             );
             if (!webUiRuntime.isOidcConfigured()) {
                 console.error(

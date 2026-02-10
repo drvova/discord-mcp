@@ -111,6 +111,7 @@ type StoredSessionRecord = WebUiSessionPublic & {
 type StoredOidcStateRecord = {
     state: string;
     codeVerifier?: string;
+    redirectUri?: string;
     returnTo?: string;
     createdAt: string;
     expiresAt: string;
@@ -148,6 +149,7 @@ export type WebUiRuntimeConfig = {
         redirectUri?: string;
         scopes: string[];
         pkceRequired: boolean;
+        extraAuthorizationParams?: Record<string, string>;
     };
     planner: {
         apiKey?: string;
@@ -275,12 +277,21 @@ export class WebUiRuntime {
         this.statePath = resolve(config.storePath);
         this.sessionTtlSeconds = Math.max(300, config.sessionTtlSeconds);
         this.oidcStateTtlSeconds = Math.max(60, config.oidcStateTtlSeconds);
+        const extraAuthorizationParams = Object.fromEntries(
+            Object.entries(config.oidc.extraAuthorizationParams || {}).filter(
+                ([key, value]) =>
+                    key.trim().length > 0 &&
+                    typeof value === "string" &&
+                    value.trim().length > 0,
+            ),
+        );
         this.oidcConfig = {
             ...config.oidc,
             scopes:
                 config.oidc.scopes.length > 0
                     ? [...config.oidc.scopes]
                     : ["openid", "profile", "email"],
+            extraAuthorizationParams,
         };
         this.plannerConfig = {
             apiKey: config.planner.apiKey || "",
@@ -393,7 +404,11 @@ export class WebUiRuntime {
         return clonePublicSession(session);
     }
 
-    async startOidcAuthentication(returnTo?: string): Promise<{
+    async startOidcAuthentication(input?: {
+        returnTo?: string;
+        redirectUri?: string;
+        extraAuthorizationParams?: Record<string, string>;
+    }): Promise<{
         authorizeUrl: string;
         expiresAt: string;
     }> {
@@ -407,6 +422,10 @@ export class WebUiRuntime {
         }
 
         const endpoints = await this.resolveOidcEndpoints();
+        const redirectUri = (input?.redirectUri || this.oidcConfig.redirectUri || "").trim();
+        if (!redirectUri) {
+            throw new Error("OIDC redirect URI is missing.");
+        }
         const state = base64UrlEncode(randomBytes(32));
         const createdAtEpoch = Date.now();
         const expiresAt = toIsoTime(
@@ -426,7 +445,8 @@ export class WebUiRuntime {
         this.state.oidcStates[state] = {
             state,
             codeVerifier,
-            returnTo,
+            redirectUri,
+            returnTo: input?.returnTo,
             createdAt: toIsoTime(createdAtEpoch),
             expiresAt,
         };
@@ -435,7 +455,7 @@ export class WebUiRuntime {
         const params = new URLSearchParams({
             response_type: "code",
             client_id: this.oidcConfig.clientId as string,
-            redirect_uri: this.oidcConfig.redirectUri as string,
+            redirect_uri: redirectUri,
             scope: this.oidcConfig.scopes.join(" "),
             state,
         });
@@ -443,6 +463,20 @@ export class WebUiRuntime {
         if (codeChallenge) {
             params.set("code_challenge", codeChallenge);
             params.set("code_challenge_method", "S256");
+        }
+
+        const mergedExtraAuthorizationParams = {
+            ...(this.oidcConfig.extraAuthorizationParams || {}),
+            ...(input?.extraAuthorizationParams || {}),
+        };
+        for (const [key, value] of Object.entries(mergedExtraAuthorizationParams)) {
+            if (key.trim().length === 0 || value.trim().length === 0) {
+                continue;
+            }
+            if (params.has(key)) {
+                continue;
+            }
+            params.set(key, value);
         }
 
         return {
@@ -470,6 +504,7 @@ export class WebUiRuntime {
             code,
             oidcState.codeVerifier,
             endpoints.tokenEndpoint,
+            oidcState.redirectUri || (this.oidcConfig.redirectUri as string),
         );
 
         const profile = await this.resolveProfile(
@@ -879,6 +914,7 @@ export class WebUiRuntime {
         code: string,
         codeVerifier: string | undefined,
         tokenEndpoint: string,
+        redirectUri: string,
     ): Promise<{
         access_token: string;
         id_token?: string;
@@ -886,7 +922,7 @@ export class WebUiRuntime {
         const body = new URLSearchParams({
             grant_type: "authorization_code",
             code,
-            redirect_uri: this.oidcConfig.redirectUri as string,
+            redirect_uri: redirectUri,
             client_id: this.oidcConfig.clientId as string,
         });
 
