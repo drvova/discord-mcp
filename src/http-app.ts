@@ -48,6 +48,26 @@ const OAuthCallbackQuerySchema = z.object({
     state: z.string().min(1),
 });
 
+const OidcCallbackQuerySchema = z
+    .object({
+        code: z.string().min(1).optional(),
+        state: z.string().min(1).optional(),
+        error: z.string().optional(),
+        error_description: z.string().optional(),
+    })
+    .superRefine((value, ctx) => {
+        if (value.error) {
+            return;
+        }
+        if (!value.code || !value.state) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message:
+                    "OIDC callback requires either error fields or both code and state.",
+            });
+        }
+    });
+
 const OidcStartQuerySchema = z.object({
     returnTo: z.string().optional(),
     format: z.enum(["redirect", "json"]).optional(),
@@ -121,6 +141,20 @@ const oauthCallbackQueryValidator = validator("query", (value, c) => {
             {
                 error:
                     "OAuth callback requires code and state query parameters",
+            },
+            400,
+        );
+    }
+    return parsed.data;
+});
+
+const oidcCallbackQueryValidator = validator("query", (value, c) => {
+    const parsed = OidcCallbackQuerySchema.safeParse(value);
+    if (!parsed.success) {
+        return c.json(
+            {
+                error:
+                    "OIDC callback requires either an error payload or both code and state query parameters",
             },
             400,
         );
@@ -677,8 +711,32 @@ export function createHttpApp(deps: HttpAppDependencies) {
 
     const completeWebUiOidcCallback = async (
         c: Context<{ Bindings: HttpBindings }>,
-        query: { code: string; state: string },
+        query: {
+            code?: string;
+            state?: string;
+            error?: string;
+            error_description?: string;
+        },
     ) => {
+        if (query.error) {
+            const message = query.error_description
+                ? `${query.error}: ${query.error_description}`
+                : query.error;
+            return c.redirect(
+                `${mountPath}/?authError=${encodeURIComponent(message)}`,
+                302,
+            );
+        }
+
+        if (!query.code || !query.state) {
+            return c.redirect(
+                `${mountPath}/?authError=${encodeURIComponent(
+                    "OIDC callback missing required code/state",
+                )}`,
+                302,
+            );
+        }
+
         try {
             const callback = await webUiRuntime.completeOidcAuthentication(
                 query.code,
@@ -705,13 +763,13 @@ export function createHttpApp(deps: HttpAppDependencies) {
         }
     };
 
-    app.get("/auth/oidc/callback", oauthCallbackQueryValidator, async (c) =>
+    app.get("/auth/oidc/callback", oidcCallbackQueryValidator, async (c) =>
         completeWebUiOidcCallback(c, c.req.valid("query")),
     );
-    app.get("/auth/codex/callback", oauthCallbackQueryValidator, async (c) =>
+    app.get("/auth/codex/callback", oidcCallbackQueryValidator, async (c) =>
         completeWebUiOidcCallback(c, c.req.valid("query")),
     );
-    app.get("/auth/callback", oauthCallbackQueryValidator, async (c) =>
+    app.get("/auth/callback", oidcCallbackQueryValidator, async (c) =>
         completeWebUiOidcCallback(c, c.req.valid("query")),
     );
 

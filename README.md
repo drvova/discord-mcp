@@ -103,7 +103,7 @@ DISCORD_GUILD_ID=your_guild_id_here
 # Optional OAuth (HTTP mode)
 # DISCORD_CLIENT_ID=...
 # DISCORD_CLIENT_SECRET=...
-# DISCORD_OAUTH_REDIRECT_URI=http://localhost:3001/oauth/discord/callback
+# DISCORD_OAUTH_REDIRECT_URI=http://localhost:1455/oauth/discord/callback
 
 # Optional web UI + OIDC bridge
 # DISCORD_WEB_UI_MOUNT_PATH=/app
@@ -117,12 +117,12 @@ DISCORD_GUILD_ID=your_guild_id_here
 # authorization_endpoint=https://auth.openai.com/oauth/authorize
 # token_endpoint=https://auth.openai.com/oauth/token
 # client_id=app_EMoamEEZ73f0CkXaXp7hrann
-# redirect_uri=http://localhost:3001/auth/callback
+# redirect_uri=http://localhost:1455/auth/callback
 # scopes=openid profile email offline_access
 # DISCORD_WEB_OIDC_ISSUER=https://issuer.example.com
 # DISCORD_WEB_OIDC_CLIENT_ID=...
 # DISCORD_WEB_OIDC_CLIENT_SECRET=...
-# DISCORD_WEB_OIDC_REDIRECT_URI=http://localhost:3001/auth/callback
+# DISCORD_WEB_OIDC_REDIRECT_URI=http://localhost:1455/auth/callback
 # DISCORD_WEB_OIDC_SCOPES=openid profile email offline_access
 # DISCORD_WEB_OIDC_PKCE_REQUIRED=true
 # DISCORD_WEB_OIDC_ID_TOKEN_ADD_ORGANIZATIONS=true
@@ -159,7 +159,7 @@ When `MCP_HTTP_PORT` (or `PORT`) is set:
 
 ## Web UI Runtime (Single Server)
 
-Use one command to build UI + backend and run Hono on `:3001`:
+Use one command to build UI + backend and run Hono on `:1455`:
 
 ```bash
 npm run web:dev
@@ -169,8 +169,8 @@ This flow:
 
 - Builds the SvelteKit app into `web/build`
 - Compiles backend TypeScript
-- Runs a single Hono server on `http://localhost:3001`
-- Serves UI directly at `http://localhost:3001/app/` (no Vite proxy required)
+- Runs a single Hono server on `http://localhost:1455`
+- Serves UI directly at `http://localhost:1455/app/` (no Vite proxy required)
 
 Missing Discord OAuth callback env vars (`DISCORD_CLIENT_SECRET`,
 `DISCORD_OAUTH_REDIRECT_URI`) no longer block HTTP startup; only the
@@ -183,7 +183,7 @@ You can use the generated typed client from Hono route types:
 ```ts
 import { createHttpClient } from "./src/http-client.js";
 
-const client = createHttpClient("http://localhost:3001");
+const client = createHttpClient("http://localhost:1455");
 const healthResponse = await client.health.$get();
 const health = await healthResponse.json();
 
@@ -289,7 +289,7 @@ If you expect thousands of operations in the MCP registry, this is by design:
 - `npm run build` - compile TypeScript
 - `npm run dev` - build once, then run `tsc -w` + `node --watch`
 - `npm start` - run compiled stdio server
-- `npm run web` - run compiled Hono HTTP/SSE server on port 3001
+- `npm run web` - run compiled Hono HTTP/SSE server on port 1455
 - `npm run web:build` - build then run HTTP/SSE
 - `npm run ui:build` - build SvelteKit web UI into `web/build`
 - `npm run web:full` - build UI + backend and run HTTP server
