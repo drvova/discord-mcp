@@ -118,8 +118,16 @@ You can use the generated typed client from Hono route types:
 import { createHttpClient } from "./src/http-client.js";
 
 const client = createHttpClient("http://localhost:3001");
-const response = await client.health.$get();
-const health = await response.json();
+const healthResponse = await client.health.$get();
+const health = await healthResponse.json();
+
+const rpcResponse = await client.index.$post({
+  json: {
+    id: 1,
+    method: "tools/list"
+  }
+});
+const rpc = await rpcResponse.json();
 ```
 
 The MCP JSON-RPC contract on `POST /` is unchanged (`initialize`, `tools/list`, `tools/call`).
