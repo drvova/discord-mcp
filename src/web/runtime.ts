@@ -261,6 +261,60 @@ function sanitizeLogUrl(url: string): string {
     }
 }
 
+type OpenAiAuthClaimSummary = {
+    organizationId?: string;
+    projectId?: string;
+    chatgptAccountId?: string;
+    organizationsCount?: number;
+};
+
+function summarizeOpenAiAuthClaims(idToken: string | undefined): OpenAiAuthClaimSummary {
+    if (!idToken) {
+        return {};
+    }
+
+    const tokenParts = idToken.split(".");
+    if (tokenParts.length < 2) {
+        return {};
+    }
+
+    let payload: Record<string, unknown> = {};
+    try {
+        payload = JSON.parse(
+            base64UrlDecode(tokenParts[1]).toString("utf8"),
+        ) as Record<string, unknown>;
+    } catch {
+        payload = {};
+    }
+
+    const authNamespace = normalizeRecord(
+        payload["https://api.openai.com/auth"],
+    );
+
+    const organizationId =
+        typeof authNamespace.organization_id === "string"
+            ? authNamespace.organization_id
+            : undefined;
+    const projectId =
+        typeof authNamespace.project_id === "string"
+            ? authNamespace.project_id
+            : undefined;
+    const chatgptAccountId =
+        typeof authNamespace.chatgpt_account_id === "string"
+            ? authNamespace.chatgpt_account_id
+            : undefined;
+    const organizationsCount = Array.isArray(authNamespace.organizations)
+        ? authNamespace.organizations.length
+        : undefined;
+
+    return {
+        organizationId,
+        projectId,
+        chatgptAccountId,
+        organizationsCount,
+    };
+}
+
 function normalizeMessages(
     value: unknown,
 ): Record<string, ChatMessageRecord[]> {
@@ -575,8 +629,20 @@ export class WebUiRuntime {
             params.set(key, value);
         }
 
+        const authorizeUrl = `${endpoints.authorizationEndpoint}?${params.toString()}`;
+        console.error("[web-ui runtime] oidc.start.authorize_url", {
+            authorizationEndpoint: sanitizeLogUrl(endpoints.authorizationEndpoint),
+            redirectUri,
+            scope: this.oidcConfig.scopes.join(" "),
+            hasPkce: Boolean(codeChallenge),
+            hasIdTokenOrganizationsParam: params.get("id_token_add_organizations") === "true",
+            hasSimplifiedFlowParam: params.get("codex_cli_simplified_flow") === "true",
+            originator: params.get("originator") || undefined,
+            allowedWorkspaceId: params.get("allowed_workspace_id") || undefined,
+        });
+
         return {
-            authorizeUrl: `${endpoints.authorizationEndpoint}?${params.toString()}`,
+            authorizeUrl,
             expiresAt,
         };
     }
@@ -1171,8 +1237,28 @@ export class WebUiRuntime {
                 error.code === "invalid_subject_token" &&
                 error.message.toLowerCase().includes("missing organization_id")
             ) {
+                const authClaims = summarizeOpenAiAuthClaims(idToken);
+                console.error(
+                    "[web-ui runtime] oidc.token_exchange.missing_organization_id",
+                    {
+                        tokenEndpoint: sanitizeLogUrl(tokenEndpoint),
+                        requestedToken,
+                        hasOrganizationId: Boolean(authClaims.organizationId),
+                        projectId: authClaims.projectId,
+                        chatgptAccountId: authClaims.chatgptAccountId,
+                        organizationsCount: authClaims.organizationsCount,
+                        configuredAllowedWorkspaceId:
+                            this.oidcConfig.extraAuthorizationParams
+                                ?.allowed_workspace_id || undefined,
+                    },
+                );
+                const retryHint =
+                    authClaims.chatgptAccountId &&
+                    authClaims.chatgptAccountId.trim().length > 0
+                        ? ` Retry sign-in with workspaceId=${authClaims.chatgptAccountId}.`
+                        : "";
                 throw new Error(
-                    "OpenAI login is missing organization access. Sign in with an organization/workspace selected.",
+                    `OpenAI login is missing platform organization access (ID token did not include organization_id).${retryHint}`,
                 );
             }
             throw new Error(
