@@ -90,6 +90,17 @@ small {
     color: var(--muted);
 }
 
+.auth-actions {
+    display: grid;
+    gap: 0.55rem;
+}
+
+.auth-divider {
+    text-align: center;
+    font-size: 0.78rem;
+    margin: 0.1rem 0;
+}
+
 .workspace {
     min-height: 100%;
     padding: 1rem;

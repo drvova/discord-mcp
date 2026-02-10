@@ -149,6 +149,7 @@ When `MCP_HTTP_PORT` (or `PORT`) is set:
 - `GET /auth/oidc/start` (alias)
 - `GET /auth/oidc/callback` (alias)
 - `GET /auth/callback` (Codex-compatible primary callback)
+- `POST /auth/api-key/login` (create web session directly from API key)
 - `GET /api/session`
 - `POST /api/session/logout`
 - `POST /api/session/identity`
@@ -204,6 +205,7 @@ The MCP JSON-RPC contract on `POST /` is unchanged (`initialize`, `tools/list`, 
 
 - The UI is served by Hono at `/app/`.
 - Login starts at `/auth/codex/start` and returns via `/auth/callback` by default (`/auth/codex/callback` and `/auth/oidc/callback` are aliases).
+- If OAuth token exchange cannot mint `openai-api-key`, you can sign in directly from the web UI with an API key (`POST /auth/api-key/login`) without setting extra environment variables.
 - Codex login sends Codex-compatible auth parameters by default, including `originator=codex_cli_rs`, and accepts optional workspace pinning via `/auth/codex/start?workspaceId=ws_...` (`allowed_workspace_id`).
 - When OIDC is not configured and `DISCORD_WEB_ALLOW_DEV_AUTH=true` (default outside production), `/auth/codex/start` creates a local dev session automatically.
 - After Codex OAuth callback, token exchange (`requested_token=openai-api-key`) must succeed before a web session is created.

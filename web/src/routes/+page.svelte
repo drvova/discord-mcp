@@ -73,6 +73,8 @@
     let uiError = "";
     let authError = "";
     let workspaceId = "";
+    let apiKeyInput = "";
+    let apiKeySigningIn = false;
 
     const workspaceStorageKey = "discord_mcp_workspace_id";
 
@@ -406,6 +408,48 @@
         window.location.href = `/auth/codex/start?${params.toString()}`;
     }
 
+    async function loginWithApiKey(): Promise<void> {
+        const normalizedApiKey = apiKeyInput.trim();
+        if (!normalizedApiKey) {
+            authError = "API key is required.";
+            return;
+        }
+
+        apiKeySigningIn = true;
+        authError = "";
+        uiError = "";
+
+        try {
+            const response = await fetch("/auth/api-key/login", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    apiKey: normalizedApiKey,
+                }),
+            });
+            const payload = (await response.json()) as { error?: string };
+            if (!response.ok) {
+                authError = payload.error || "Failed to sign in with API key.";
+                return;
+            }
+
+            apiKeyInput = "";
+            await loadSession();
+            if (isAuthenticated) {
+                await loadThreads(true);
+            }
+        } catch (error) {
+            authError =
+                error instanceof Error
+                    ? error.message
+                    : "Failed to sign in with API key.";
+        } finally {
+            apiKeySigningIn = false;
+        }
+    }
+
     function onModeChange(nextMode: Mode): void {
         mode = nextMode;
         if (identityId === "default-bot" || identityId === "default-user") {
@@ -467,9 +511,27 @@
                 />
             </label>
 
-            <button class="primary" on:click={startOidcLogin}>
-                Sign In (Codex-Style)
-            </button>
+            <div class="auth-actions">
+                <button class="primary" on:click={startOidcLogin}>
+                    Sign In (Codex-Style)
+                </button>
+                <span class="muted auth-divider">or</span>
+                <label class="auth-field">
+                    OpenAI API Key
+                    <input
+                        type="password"
+                        bind:value={apiKeyInput}
+                        placeholder="sk-..."
+                    />
+                </label>
+                <button
+                    class="ghost"
+                    on:click={loginWithApiKey}
+                    disabled={apiKeySigningIn}
+                >
+                    {apiKeySigningIn ? "Signing In..." : "Sign In (API Key)"}
+                </button>
+            </div>
         </section>
     </main>
 {:else}

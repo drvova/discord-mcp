@@ -74,6 +74,10 @@ const OidcStartQuerySchema = z.object({
     workspaceId: z.string().trim().min(1).optional(),
 });
 
+const ApiKeyLoginSchema = z.object({
+    apiKey: z.string().trim().min(1).max(256),
+});
+
 const SessionIdentityUpdateSchema = z.object({
     mode: z.enum(["bot", "user"]),
     rememberMode: z.boolean(),
@@ -167,6 +171,14 @@ const oidcStartQueryValidator = validator("query", (value, c) => {
     const parsed = OidcStartQuerySchema.safeParse(value);
     if (!parsed.success) {
         return c.json({ error: "Invalid OIDC query parameters" }, 400);
+    }
+    return parsed.data;
+});
+
+const apiKeyLoginValidator = validator("json", (value, c) => {
+    const parsed = ApiKeyLoginSchema.safeParse(value);
+    if (!parsed.success) {
+        return c.json({ error: "Invalid API key login payload" }, 400);
     }
     return parsed.data;
 });
@@ -769,6 +781,30 @@ export function createHttpApp(deps: HttpAppDependencies) {
         }
     });
 
+    app.post("/auth/api-key/login", apiKeyLoginValidator, async (c) => {
+        const payload = c.req.valid("json");
+
+        try {
+            const session = await webUiRuntime.createApiKeySession(payload.apiKey);
+            setCookie(c, webUiSessionCookieName, session.sessionId, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === "production",
+                sameSite: "Lax",
+                path: "/",
+                maxAge: webUiSessionCookieTtlSeconds,
+            });
+
+            return c.json({ session }, 200);
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : String(error);
+            logWebUiAuthError("api_key.login.failed", error, {
+                path: c.req.path,
+            });
+            return c.json({ error: message }, 400);
+        }
+    });
+
     const completeWebUiOidcCallback = async (
         c: Context<{ Bindings: HttpBindings }>,
         query: {
@@ -1067,7 +1103,7 @@ export function createHttpApp(deps: HttpAppDependencies) {
             : `\n- ${mountPath}/ - Web chat UI (build missing: run npm --prefix web run build)`;
 
         return c.text(
-            `Discord MCP Server\n\nMCP Remote Usage:\nnpx -y mcp-remote ${host}\n\nEndpoints:\n- GET /sse - SSE connection\n- POST /message - Message handling\n- GET /health - Health check\n- GET /oauth/discord/start - Generate OAuth install URL\n- GET /oauth/discord/callback - OAuth callback handler\n- GET /auth/codex/start - Start Codex-style login flow\n- GET /auth/codex/callback - Complete Codex-style login flow\n- GET /auth/oidc/start - Start OIDC login flow (alias)\n- GET /auth/oidc/callback - Complete OIDC login flow (alias)\n- GET /auth/callback - Codex-compatible callback alias\n- GET /api/session - Current web session\n- GET /api/chat/threads - Chat thread list${uiState}\n\nActive connections: ${activeTransports.size}`,
+            `Discord MCP Server\n\nMCP Remote Usage:\nnpx -y mcp-remote ${host}\n\nEndpoints:\n- GET /sse - SSE connection\n- POST /message - Message handling\n- GET /health - Health check\n- GET /oauth/discord/start - Generate OAuth install URL\n- GET /oauth/discord/callback - OAuth callback handler\n- GET /auth/codex/start - Start Codex-style login flow\n- GET /auth/codex/callback - Complete Codex-style login flow\n- GET /auth/oidc/start - Start OIDC login flow (alias)\n- GET /auth/oidc/callback - Complete OIDC login flow (alias)\n- GET /auth/callback - Codex-compatible callback alias\n- POST /auth/api-key/login - Start API key web session\n- GET /api/session - Current web session\n- GET /api/chat/threads - Chat thread list${uiState}\n\nActive connections: ${activeTransports.size}`,
             200,
         );
     });

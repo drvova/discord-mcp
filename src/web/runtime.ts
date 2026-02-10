@@ -105,7 +105,7 @@ type OidcProfile = {
 };
 
 type StoredSessionRecord = WebUiSessionPublic & {
-    provider: "oidc" | "dev";
+    provider: "oidc" | "dev" | "api_key";
     plannerApiKey?: string;
 };
 
@@ -512,7 +512,7 @@ export class WebUiRuntime {
         const session = this.state.sessions[sessionId];
         if (
             session &&
-            session.provider === "oidc" &&
+            session.provider !== "dev" &&
             (!session.plannerApiKey || session.plannerApiKey.trim().length === 0)
         ) {
             delete this.state.sessions[sessionId];
@@ -576,6 +576,34 @@ export class WebUiRuntime {
             subject: "local-dev",
             name: "Local Dev Session",
             email: undefined,
+            defaultMode: "bot",
+            rememberMode: true,
+            createdAt: toIsoTime(now),
+            expiresAt: toIsoTime(now + this.sessionTtlSeconds * 1000),
+        };
+
+        this.state.sessions[sessionId] = session;
+        await this.persistState();
+        return clonePublicSession(session);
+    }
+
+    async createApiKeySession(apiKey: string): Promise<WebUiSessionPublic> {
+        await this.loadStateIfNeeded();
+        const normalizedApiKey = apiKey.trim();
+        if (!normalizedApiKey) {
+            throw new Error("API key is required.");
+        }
+
+        const now = Date.now();
+        const sessionId = randomUUID();
+        const keySuffix = normalizedApiKey.slice(-4);
+        const session: StoredSessionRecord = {
+            sessionId,
+            provider: "api_key",
+            subject: `api-key-${sessionId}`,
+            name: keySuffix ? `API Key Session ••••${keySuffix}` : "API Key Session",
+            email: undefined,
+            plannerApiKey: normalizedApiKey,
             defaultMode: "bot",
             rememberMode: true,
             createdAt: toIsoTime(now),
