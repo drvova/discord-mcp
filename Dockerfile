@@ -20,12 +20,8 @@ RUN apk add --no-cache dumb-init
 COPY --from=builder /app/package*.json ./
 RUN npm ci --only=production --ignore-scripts && npm cache clean --force
 
-# Copy built application and startup script
+# Copy built application
 COPY --from=builder /app/dist ./dist
-COPY start.sh ./
-
-# Make startup script executable
-RUN chmod +x start.sh
 
 ENV DISCORD_TOKEN=""
 ENV DISCORD_GUILD_ID=""
@@ -36,4 +32,4 @@ EXPOSE 3000
 
 # Use dumb-init to handle signals properly for stdio transport
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["./start.sh"]
+CMD ["node", "dist/src/index.js"]
