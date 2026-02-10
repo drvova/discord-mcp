@@ -14,10 +14,13 @@ import { OAuthManager } from "./core/OAuthManager.js";
 import { writeAuditEvent } from "./gateway/audit-log.js";
 import { getDiscordJsSymbolsCatalog } from "./gateway/discordjs-symbol-catalog.js";
 import {
-    DISCORD_OPERATIONS,
+    DISCORDJS_DISCOVERY_OPERATION,
+    DYNAMIC_DISCORDJS_OPERATION_PREFIX,
     DOMAIN_METHODS,
     type DomainMethod,
     type DiscordOperation,
+    isDiscordJsDiscoveryOperation,
+    isDiscordJsInvocationOperation,
     resolveDomainMethod,
     resolveOperationForMethod,
 } from "./gateway/domain-registry.js";
@@ -88,19 +91,7 @@ type ParsedDiscordManageCall = {
     riskTier: RiskTier;
 };
 
-const USER_MODE_BLOCKED_ACTIONS = new Set<string>([
-    "invoke_discordjs_symbol",
-]);
-
-const HIGH_RISK_ACTIONS = new Set<string>([
-    "invoke_discordjs_symbol",
-]);
-
-const ACTION_SCHEMA_NAME_OVERRIDES: Record<string, string> = {
-    // Intentionally empty: static operations follow PascalCase + Schema naming.
-};
-
-type DiscordJsDynamicInvocationKind =
+type DiscordJsInvocationKind =
     | "class"
     | "enum"
     | "interface"
@@ -112,12 +103,12 @@ type DiscordJsDynamicInvocationKind =
     | "namespace"
     | "external";
 
+type DiscordJsDynamicOperationKind = DiscordJsInvocationKind | "meta";
+
 type ParsedDynamicDiscordJsOperation = {
-    kind: DiscordJsDynamicInvocationKind;
+    kind: DiscordJsDynamicOperationKind;
     symbol: string;
 };
-
-const DYNAMIC_DISCORDJS_OPERATION_PREFIX = "discordjs.";
 
 function parseDynamicDiscordJsOperation(
     operation: string,
@@ -149,7 +140,8 @@ function parseDynamicDiscordJsOperation(
         );
     }
 
-    const allowedKinds: DiscordJsDynamicInvocationKind[] = [
+    const allowedKinds: DiscordJsDynamicOperationKind[] = [
+        "meta",
         "class",
         "enum",
         "interface",
@@ -162,7 +154,7 @@ function parseDynamicDiscordJsOperation(
         "external",
     ];
 
-    if (!allowedKinds.includes(rawKind as DiscordJsDynamicInvocationKind)) {
+    if (!allowedKinds.includes(rawKind as DiscordJsDynamicOperationKind)) {
         throw new Error(
             `Unsupported discord.js dynamic kind '${rawKind}'. Supported kinds: ${allowedKinds.join(", ")}.`,
         );
@@ -176,7 +168,7 @@ function parseDynamicDiscordJsOperation(
     }
 
     return {
-        kind: rawKind as DiscordJsDynamicInvocationKind,
+        kind: rawKind as DiscordJsDynamicOperationKind,
         symbol,
     };
 }
@@ -225,7 +217,7 @@ const getAllTools = () => [
                 operation: {
                     type: "string",
                     description:
-                        "Operation key. Static: get_discordjs_symbols | invoke_discordjs_symbol. Dynamic: discordjs.<kind>.<symbol> (for example: discordjs.function.channelMention or discordjs.function.Guild%23fetch).",
+                        "Operation key. Discovery: discordjs.meta.symbols (method automation.read). Invocation: discordjs.<kind>.<symbol> (method automation.write, for example: discordjs.function.channelMention or discordjs.function.Guild%23fetch).",
                 },
                 params: {
                     type: "object",
@@ -261,29 +253,6 @@ type GenericSchema = {
     };
 };
 
-function toPascalCase(value: string): string {
-    return value
-        .split("_")
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join("");
-}
-
-function getActionSchema(action: string): GenericSchema {
-    const schemaName =
-        ACTION_SCHEMA_NAME_OVERRIDES[action] || `${toPascalCase(action)}Schema`;
-    const schema = (schemas as Record<string, unknown>)[schemaName] as
-        | GenericSchema
-        | undefined;
-
-    if (!schema || typeof schema.parse !== "function") {
-        throw new Error(
-            `Schema '${schemaName}' not found for action '${action}'.`,
-        );
-    }
-
-    return schema;
-}
-
 function getSchemaKeyOrder(schema: GenericSchema): string[] {
     const directShape =
         typeof schema.shape === "function" ? schema.shape() : schema.shape;
@@ -302,21 +271,22 @@ function getSchemaKeyOrder(schema: GenericSchema): string[] {
     return [];
 }
 
-const ACTION_PARAM_KEYS = new Map<string, string[]>();
-for (const action of DISCORD_OPERATIONS) {
-    const schema = getActionSchema(action);
-    ACTION_PARAM_KEYS.set(action, getSchemaKeyOrder(schema));
-}
+const DISCOVERY_PARAM_KEYS = getSchemaKeyOrder(
+    schemas.GetDiscordjsSymbolsSchema as unknown as GenericSchema,
+);
+const INVOCATION_PARAM_KEYS = getSchemaKeyOrder(
+    schemas.InvokeDiscordjsSymbolSchema as unknown as GenericSchema,
+);
 
 function coerceArgsToParams(
-    operation: DiscordOperation,
     rawArgs: unknown,
+    paramKeys: string[],
+    operationLabel: string,
 ): Record<string, unknown> {
     if (Array.isArray(rawArgs)) {
-        const paramKeys = ACTION_PARAM_KEYS.get(operation) || [];
         if (rawArgs.length > paramKeys.length) {
             throw new Error(
-                `Operation '${operation}' received too many arguments. Expected at most ${paramKeys.length}, got ${rawArgs.length}.`,
+                `Operation '${operationLabel}' received too many arguments. Expected at most ${paramKeys.length}, got ${rawArgs.length}.`,
             );
         }
 
@@ -346,7 +316,9 @@ function normalizeParamsBySchemaOrder(
 ): Record<string, unknown> {
     const ordered: Record<string, unknown> = {};
     const knownKeys = new Set<string>();
-    const schemaKeys = ACTION_PARAM_KEYS.get(operation) || [];
+    const schemaKeys = isDiscordJsDiscoveryOperation(operation)
+        ? DISCOVERY_PARAM_KEYS
+        : INVOCATION_PARAM_KEYS;
 
     for (const key of schemaKeys) {
         if (key in params) {
@@ -364,27 +336,17 @@ function normalizeParamsBySchemaOrder(
     return ordered;
 }
 
-function inferRiskTier(operation: DiscordOperation): RiskTier {
-    if (HIGH_RISK_ACTIONS.has(operation)) {
-        return "high";
-    }
+function coerceDiscoveryDiscordJsArgs(rawArgs: unknown): Record<string, unknown> {
+    return coerceArgsToParams(
+        rawArgs,
+        DISCOVERY_PARAM_KEYS,
+        DISCORDJS_DISCOVERY_OPERATION,
+    );
+}
 
-    if (
-        operation.startsWith("create_") ||
-        operation.startsWith("edit_") ||
-        operation.startsWith("set_") ||
-        operation.startsWith("add_") ||
-        operation.startsWith("remove_") ||
-        operation.startsWith("move_") ||
-        operation.startsWith("send_") ||
-        operation.startsWith("pin_") ||
-        operation.startsWith("unpin_") ||
-        operation.startsWith("play_") ||
-        operation.startsWith("upload_") ||
-        operation === "crosspost_message" ||
-        operation === "organize_channels"
-    ) {
-        return "medium";
+function inferRiskTier(operation: DiscordOperation): RiskTier {
+    if (isDiscordJsInvocationOperation(operation)) {
+        return "high";
     }
 
     return "low";
@@ -394,7 +356,7 @@ function enforceOperationPolicy(
     mode: IdentityMode,
     operation: DiscordOperation,
 ): RiskTier {
-    if (mode === "user" && USER_MODE_BLOCKED_ACTIONS.has(operation)) {
+    if (mode === "user" && isDiscordJsInvocationOperation(operation)) {
         throw new Error(
             `Operation '${operation}' is blocked for user mode. Use bot mode for this operation.`,
         );
@@ -485,23 +447,33 @@ function parseDiscordManageCall(
     }
 
     const method = resolveDomainMethod(rawMethod);
-    const dynamicOperation = parseDynamicDiscordJsOperation(rawOperation);
+    const operation = resolveOperationForMethod(method, rawOperation);
+    const dynamicOperation = parseDynamicDiscordJsOperation(operation);
+    if (!dynamicOperation) {
+        throw new Error(
+            `Operation '${operation}' is not a valid dynamic discord.js operation.`,
+        );
+    }
 
-    let operation: DiscordOperation;
     let params: Record<string, unknown>;
-    if (dynamicOperation) {
-        if (method !== "automation.write") {
-            throw new Error(
-                `Dynamic discord.js operations require method 'automation.write'. Received '${method}'.`,
-            );
-        }
-
-        operation = resolveOperationForMethod(method, "invoke_discordjs_symbol");
-
+    if (isDiscordJsDiscoveryOperation(operation)) {
+        params = normalizeParamsBySchemaOrder(
+            operation,
+            rawParams !== undefined
+                ? coerceDiscoveryDiscordJsArgs(rawParams)
+                : coerceDiscoveryDiscordJsArgs(rawMethodArgs),
+        );
+    } else if (isDiscordJsInvocationOperation(operation)) {
         const baseParams =
             rawParams !== undefined
                 ? coerceDynamicDiscordJsArgs(rawParams)
                 : coerceDynamicDiscordJsArgs(rawMethodArgs);
+
+        if (dynamicOperation.kind === "meta") {
+            throw new Error(
+                `Operation '${operation}' cannot use kind 'meta' for invocation.`,
+            );
+        }
 
         const dynamicInvokeParams: Record<string, unknown> = {
             ...baseParams,
@@ -516,12 +488,8 @@ function parseDiscordManageCall(
 
         params = normalizeParamsBySchemaOrder(operation, dynamicInvokeParams);
     } else {
-        operation = resolveOperationForMethod(method, rawOperation);
-        params = normalizeParamsBySchemaOrder(
-            operation,
-            rawParams !== undefined
-                ? coerceArgsToParams(operation, rawParams)
-                : coerceArgsToParams(operation, rawMethodArgs),
+        throw new Error(
+            `Unsupported discord.js operation '${operation}'.`,
         );
     }
 
@@ -535,6 +503,42 @@ function parseDiscordManageCall(
         params,
         riskTier,
     };
+}
+
+async function executeDiscordManageOperation(
+    parsedCall: ParsedDiscordManageCall,
+): Promise<string> {
+    const { operation, params } = parsedCall;
+
+    if (isDiscordJsDiscoveryOperation(operation)) {
+        const parsed = schemas.GetDiscordjsSymbolsSchema.parse(params);
+        const catalog = await getDiscordJsSymbolsCatalog({
+            kinds: parsed.kinds,
+            query: parsed.query,
+            page: parsed.page,
+            pageSize: parsed.pageSize,
+            sort: parsed.sort,
+            includeKindCounts: parsed.includeKindCounts,
+        });
+        return JSON.stringify(catalog, null, 2);
+    }
+
+    if (isDiscordJsInvocationOperation(operation)) {
+        const parsed = schemas.InvokeDiscordjsSymbolSchema.parse(params);
+        return await discordService.invokeDiscordJsSymbol({
+            symbol: parsed.symbol,
+            kind: parsed.kind,
+            invoke: parsed.invoke,
+            dryRun: parsed.dryRun,
+            allowWrite: parsed.allowWrite,
+            policyMode: parsed.policyMode,
+            args: parsed.args,
+            target: parsed.target,
+            context: parsed.context,
+        });
+    }
+
+    throw new Error(`Unsupported operation: ${operation}`);
 }
 
 // Tool definitions
@@ -554,61 +558,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const startedAt = Date.now();
 
         try {
-            const response = await identityWorkerPool.run(
+            const result = await identityWorkerPool.run(
                 parsedCall.identityId,
                 async () => {
                     await ensureIdentityForCall(
                         parsedCall.mode,
                         parsedCall.identityId,
                     );
-                    const { operation: action, params: args } = parsedCall;
-
-                    switch (action) {
-                        case "get_discordjs_symbols": {
-                            const parsed =
-                                schemas.GetDiscordjsSymbolsSchema.parse(args);
-                            const catalog = await getDiscordJsSymbolsCatalog({
-                                kinds: parsed.kinds,
-                                query: parsed.query,
-                                page: parsed.page,
-                                pageSize: parsed.pageSize,
-                                sort: parsed.sort,
-                                includeKindCounts: parsed.includeKindCounts,
-                            });
-                            return {
-                                content: [
-                                    {
-                                        type: "text",
-                                        text: JSON.stringify(catalog, null, 2),
-                                    },
-                                ],
-                            };
-                        }
-
-                        case "invoke_discordjs_symbol": {
-                            const parsed =
-                                schemas.InvokeDiscordjsSymbolSchema.parse(args);
-                            const result = await discordService.invokeDiscordJsSymbol(
-                                {
-                                    symbol: parsed.symbol,
-                                    kind: parsed.kind,
-                                    invoke: parsed.invoke,
-                                    dryRun: parsed.dryRun,
-                                    allowWrite: parsed.allowWrite,
-                                    policyMode: parsed.policyMode,
-                                    args: parsed.args,
-                                    target: parsed.target,
-                                    context: parsed.context,
-                                },
-                            );
-                            return { content: [{ type: "text", text: result }] };
-                        }
-
-                        default:
-                            throw new Error(`Unsupported operation: ${action}`);
-                    }
+                    return executeDiscordManageOperation(parsedCall);
                 },
             );
+            const response = {
+                content: [{ type: "text", text: result }],
+            };
 
             writeAuditEvent({
                 identityId: parsedCall.identityId,
@@ -786,68 +748,9 @@ async function main() {
                                                             parsedCall.mode,
                                                             parsedCall.identityId,
                                                         );
-                                                        const {
-                                                            operation: action,
-                                                            params: args,
-                                                        } = parsedCall;
-                                                        let result: string;
-
-                                                        switch (action) {
-                                                            case "get_discordjs_symbols": {
-                                                                const parsed =
-                                                                    schemas.GetDiscordjsSymbolsSchema.parse(
-                                                                        args,
-                                                                    );
-                                                                const catalog =
-                                                                    await getDiscordJsSymbolsCatalog(
-                                                                        {
-                                                                            kinds: parsed.kinds,
-                                                                            query: parsed.query,
-                                                                            page: parsed.page,
-                                                                            pageSize:
-                                                                                parsed.pageSize,
-                                                                            sort: parsed.sort,
-                                                                            includeKindCounts:
-                                                                                parsed.includeKindCounts,
-                                                                        },
-                                                                    );
-                                                                result = JSON.stringify(
-                                                                    catalog,
-                                                                    null,
-                                                                    2,
-                                                                );
-                                                                break;
-                                                            }
-                                                            case "invoke_discordjs_symbol": {
-                                                                const parsed =
-                                                                    schemas.InvokeDiscordjsSymbolSchema.parse(
-                                                                        args,
-                                                                    );
-                                                                result =
-                                                                    await discordService.invokeDiscordJsSymbol(
-                                                                        {
-                                                                            symbol: parsed.symbol,
-                                                                            kind: parsed.kind,
-                                                                            invoke: parsed.invoke,
-                                                                            dryRun: parsed.dryRun,
-                                                                            allowWrite:
-                                                                                parsed.allowWrite,
-                                                                            policyMode:
-                                                                                parsed.policyMode,
-                                                                            args: parsed.args,
-                                                                            target: parsed.target,
-                                                                            context: parsed.context,
-                                                                        },
-                                                                    );
-                                                                break;
-                                                            }
-
-                                                            default:
-                                                                throw new Error(
-                                                                    `Unsupported operation: ${action}`,
-                                                                );
-                                                        }
-                                                        return result;
+                                                        return executeDiscordManageOperation(
+                                                            parsedCall,
+                                                        );
                                                     },
                                                 );
 

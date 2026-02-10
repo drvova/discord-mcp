@@ -9,11 +9,10 @@ Discord MCP Server exposes Discord.js through one MCP tool with a dynamic symbol
 This repository now uses the **dynamic Discord.js routing architecture**:
 
 - **MCP tool**: `discord_manage`
-- **Static operations**:
-  - `get_discordjs_symbols`
-  - `invoke_discordjs_symbol`
-- **Dynamic operation format**:
-  - `discordjs.<kind>.<symbol>`
+- **Discovery operation**:
+  - `discordjs.meta.symbols` (method: `automation.read`)
+- **Invocation operation format**:
+  - `discordjs.<kind>.<symbol>` (method: `automation.write`)
   - Example: `discordjs.function.TextChannel%23send`
 
 ### Domain Method Contract
@@ -26,10 +25,13 @@ This repository now uses the **dynamic Discord.js routing architecture**:
   - `server.read`, `server.write`, `channels.read`, `channels.write`,
   - `messages.read`, `messages.write`, `members.read`, `members.write`,
   - `roles.read`, `roles.write`, `automation.read`, `automation.write`
-- `operation`: static op or dynamic `discordjs.<kind>.<symbol>`
+- `operation`: dynamic operation key (`discordjs.meta.symbols` or `discordjs.<kind>.<symbol>`)
 - `params` or `args`
 
-Dynamic `discordjs.*` operations are validated under `automation.write`.
+- Discovery operation `discordjs.meta.symbols` is validated under `automation.read`.
+- Invocation operations `discordjs.<kind>.<symbol>` are validated under `automation.write`.
+
+Static operation keys (`get_discordjs_symbols`, `invoke_discordjs_symbol`) are removed and now return validation errors.
 
 Runtime kind behavior:
 - Dynamic `enum` symbols are discovered directly from Discord.js runtime exports.
@@ -116,7 +118,7 @@ When `MCP_HTTP_PORT` (or `PORT`) is set:
   "mode": "bot",
   "identityId": "default-bot",
   "method": "automation.read",
-  "operation": "get_discordjs_symbols",
+  "operation": "discordjs.meta.symbols",
   "params": {
     "kinds": ["function"],
     "query": "TextChannel#send",
@@ -170,9 +172,9 @@ When `MCP_HTTP_PORT` (or `PORT`) is set:
 
 If you expect thousands of operations in the MCP registry, this is by design:
 
-- The MCP registry exposes **few static operations**.
-- Discord.js breadth is exposed through **dynamic symbol routing** (`discordjs.<kind>.<symbol>`).
-- Use `get_discordjs_symbols` to discover available symbols and operation keys.
+- The MCP registry exposes a small, fixed operation surface.
+- Discovery is exposed through `discordjs.meta.symbols`.
+- Discord.js breadth is exposed through dynamic symbol routing (`discordjs.<kind>.<symbol>`).
 - Runtime discovery includes `enum` exports (for example `ChannelType`, `ActivityType`).
 
 ## Security Guidance
