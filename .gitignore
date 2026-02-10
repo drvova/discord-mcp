@@ -1,5 +1,7 @@
 # Node.js
 node_modules/
+web/node_modules/
+web/dist/
 dist/
 *.log
 .env

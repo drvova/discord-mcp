@@ -13,6 +13,7 @@ import { OAuthManager } from "./core/OAuthManager.js";
 import { writeAuditEvent } from "./gateway/audit-log.js";
 import { getDiscordJsSymbolsCatalog } from "./gateway/discordjs-symbol-catalog.js";
 import { createHttpApp } from "./http-app.js";
+import { WebUiRuntime } from "./web/runtime.js";
 import {
     DISCORDJS_DISCOVERY_OPERATION,
     DYNAMIC_DISCORDJS_OPERATION_PREFIX,
@@ -71,6 +72,17 @@ function parseBooleanQuery(value: string | null): boolean | undefined {
         return false;
     }
     return undefined;
+}
+
+function parsePositiveInt(
+    value: string | undefined,
+    fallback: number,
+): number {
+    const parsed = Number.parseInt(value || "", 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        return fallback;
+    }
+    return parsed;
 }
 
 // Initialize Discord service
@@ -649,6 +661,112 @@ async function main() {
         }
 
         if (useHttp) {
+            const webUiMountPath = process.env.DISCORD_WEB_UI_MOUNT_PATH || "/app";
+            const webUiDistPath = process.env.DISCORD_WEB_UI_DIST_PATH || "./web/dist";
+            const webUiStorePath =
+                process.env.DISCORD_WEB_UI_STORE_PATH || "./data/web-ui-state.json";
+            const webUiSessionCookieName =
+                process.env.DISCORD_WEB_UI_SESSION_COOKIE_NAME ||
+                "discord_mcp_web_session";
+            const webUiSessionCookieTtlSeconds = parsePositiveInt(
+                process.env.DISCORD_WEB_UI_SESSION_TTL_SECONDS,
+                60 * 60 * 24 * 7,
+            );
+            const oidcStateTtlSeconds = parsePositiveInt(
+                process.env.DISCORD_WEB_OIDC_STATE_TTL_SECONDS,
+                600,
+            );
+            const plannerMaxActions = parsePositiveInt(
+                process.env.DISCORD_WEB_PLANNER_MAX_ACTIONS,
+                3,
+            );
+            const oidcScopes = (
+                process.env.DISCORD_WEB_OIDC_SCOPES || "openid profile email"
+            )
+                .split(/\s+/)
+                .map((scope) => scope.trim())
+                .filter((scope) => scope.length > 0);
+
+            const webUiRuntime = new WebUiRuntime(
+                {
+                    storePath: webUiStorePath,
+                    sessionTtlSeconds: webUiSessionCookieTtlSeconds,
+                    oidcStateTtlSeconds,
+                    oidc: {
+                        issuer: process.env.DISCORD_WEB_OIDC_ISSUER,
+                        authorizationEndpoint:
+                            process.env.DISCORD_WEB_OIDC_AUTHORIZATION_ENDPOINT,
+                        tokenEndpoint: process.env.DISCORD_WEB_OIDC_TOKEN_ENDPOINT,
+                        userinfoEndpoint:
+                            process.env.DISCORD_WEB_OIDC_USERINFO_ENDPOINT,
+                        clientId: process.env.DISCORD_WEB_OIDC_CLIENT_ID,
+                        clientSecret: process.env.DISCORD_WEB_OIDC_CLIENT_SECRET,
+                        redirectUri: process.env.DISCORD_WEB_OIDC_REDIRECT_URI,
+                        scopes: oidcScopes,
+                        pkceRequired:
+                            process.env.DISCORD_WEB_OIDC_PKCE_REQUIRED !== "false",
+                    },
+                    planner: {
+                        apiKey: process.env.DISCORD_WEB_PLANNER_API_KEY,
+                        baseUrl: process.env.DISCORD_WEB_PLANNER_BASE_URL,
+                        model:
+                            process.env.DISCORD_WEB_PLANNER_MODEL ||
+                            "gpt-4o-mini",
+                        maxActions: plannerMaxActions,
+                    },
+                },
+                async (request) => {
+                    const parsedCall = parseDiscordManageCall("discord_manage", {
+                        mode: request.mode,
+                        identityId: request.identityId,
+                        method: request.method,
+                        operation: request.operation,
+                        params: request.params,
+                    });
+                    const startedAt = Date.now();
+
+                    try {
+                        const result = await identityWorkerPool.run(
+                            parsedCall.identityId,
+                            async () => {
+                                await ensureIdentityForCall(
+                                    parsedCall.mode,
+                                    parsedCall.identityId,
+                                );
+                                return executeDiscordManageOperation(parsedCall);
+                            },
+                        );
+
+                        writeAuditEvent({
+                            identityId: parsedCall.identityId,
+                            mode: parsedCall.mode,
+                            method: parsedCall.method,
+                            operation: parsedCall.operation,
+                            riskTier: parsedCall.riskTier,
+                            status: "success",
+                            durationMs: Date.now() - startedAt,
+                        });
+
+                        return { text: result };
+                    } catch (error) {
+                        writeAuditEvent({
+                            identityId: parsedCall.identityId,
+                            mode: parsedCall.mode,
+                            method: parsedCall.method,
+                            operation: parsedCall.operation,
+                            riskTier: parsedCall.riskTier,
+                            status: "error",
+                            durationMs: Date.now() - startedAt,
+                            error:
+                                error instanceof Error
+                                    ? error.message
+                                    : String(error),
+                        });
+                        throw error;
+                    }
+                },
+            );
+
             const port = Number.parseInt(useHttp, 10) || 3000;
             const app = createHttpApp({
                 port,
@@ -661,6 +779,11 @@ async function main() {
                 getOAuthManager,
                 parseBooleanQuery,
                 getAllTools,
+                webUiRuntime,
+                webUiSessionCookieName,
+                webUiSessionCookieTtlSeconds,
+                webUiMountPath,
+                webUiDistPath,
             });
             serve({ fetch: app.fetch, port });
 
@@ -675,6 +798,20 @@ async function main() {
             console.error(
                 `OAuth callback: http://localhost:${port}/oauth/discord/callback`,
             );
+            console.error(
+                `Web UI: http://localhost:${port}${webUiMountPath}/`,
+            );
+            console.error(
+                `Codex-style auth start: http://localhost:${port}/auth/codex/start`,
+            );
+            console.error(
+                `OIDC alias start: http://localhost:${port}/auth/oidc/start`,
+            );
+            if (!webUiRuntime.isOidcConfigured()) {
+                console.error(
+                    `OIDC config missing fields: ${webUiRuntime.getOidcMissingConfigFields().join(", ")}`,
+                );
+            }
         } else {
             // Start stdio server (default)
             const transport = new StdioServerTransport();

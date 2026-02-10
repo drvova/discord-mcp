@@ -10,6 +10,7 @@ This repository now uses the **dynamic Discord.js routing architecture**:
 
 - **MCP tool**: `discord_manage`
 - **HTTP runtime**: Hono (`@hono/node-server`)
+- **Web UI**: Svelte app served by the same Hono process under `/app`
 - **Discovery operation**:
   - `discordjs.meta.symbols` (method: `automation.read`)
 - **Invocation operation format**:
@@ -57,6 +58,8 @@ Runtime kind behavior:
 git clone https://github.com/drvova/discord-mcp.git
 cd discord-mcp
 npm install
+npm --prefix web install
+npm run ui:build
 npm run build
 ```
 
@@ -71,6 +74,9 @@ npm run dev
 
 # HTTP/SSE mode
 npm run web
+
+# Full web stack (build Svelte + backend, then run HTTP mode)
+npm run web:full
 ```
 
 ## Configuration
@@ -98,6 +104,22 @@ DISCORD_GUILD_ID=your_guild_id_here
 # DISCORD_CLIENT_ID=...
 # DISCORD_CLIENT_SECRET=...
 # DISCORD_OAUTH_REDIRECT_URI=http://localhost:3001/oauth/discord/callback
+
+# Optional web UI + OIDC bridge
+# DISCORD_WEB_UI_MOUNT_PATH=/app
+# DISCORD_WEB_UI_DIST_PATH=./web/dist
+# DISCORD_WEB_UI_STORE_PATH=./data/web-ui-state.json
+# DISCORD_WEB_UI_SESSION_COOKIE_NAME=discord_mcp_web_session
+# DISCORD_WEB_UI_SESSION_TTL_SECONDS=604800
+# DISCORD_WEB_OIDC_ISSUER=https://issuer.example.com
+# DISCORD_WEB_OIDC_CLIENT_ID=...
+# DISCORD_WEB_OIDC_CLIENT_SECRET=...
+# DISCORD_WEB_OIDC_REDIRECT_URI=http://localhost:3001/auth/codex/callback
+# DISCORD_WEB_OIDC_SCOPES=openid profile email
+# DISCORD_WEB_OIDC_PKCE_REQUIRED=true
+# DISCORD_WEB_PLANNER_API_KEY=...
+# DISCORD_WEB_PLANNER_BASE_URL=https://api.openai.com/v1
+# DISCORD_WEB_PLANNER_MODEL=gpt-4o-mini
 ```
 
 ## HTTP Endpoints
@@ -109,6 +131,19 @@ When `MCP_HTTP_PORT` (or `PORT`) is set:
 - `GET /health`
 - `GET /oauth/discord/start`
 - `GET /oauth/discord/callback`
+- `GET /auth/codex/start` (primary Codex-style login entrypoint)
+- `GET /auth/codex/callback` (primary callback)
+- `GET /auth/oidc/start` (alias)
+- `GET /auth/oidc/callback` (alias)
+- `GET /api/session`
+- `POST /api/session/logout`
+- `POST /api/session/identity`
+- `GET /api/chat/threads`
+- `POST /api/chat/threads`
+- `GET /api/chat/threads/:threadId/messages`
+- `POST /api/chat/plan`
+- `POST /api/chat/execute`
+- `GET /app/` (Svelte web UI when `web/dist` exists)
 
 ## Typed HTTP Client (`hc`)
 
@@ -131,6 +166,14 @@ const rpc = await rpcResponse.json();
 ```
 
 The MCP JSON-RPC contract on `POST /` is unchanged (`initialize`, `tools/list`, `tools/call`).
+
+## Web UI Flow
+
+- The UI is served by Hono at `/app/`.
+- Login starts at `/auth/codex/start` and returns via `/auth/codex/callback` (OIDC aliases are also supported).
+- Session state is cookie-based and persisted in `DISCORD_WEB_UI_STORE_PATH`.
+- Chat planning uses dynamic operation generation and defaults write operations to `dryRun: true`.
+- Live writes require explicit confirmation in the UI (`confirmWrites: true`).
 
 ## Usage Examples
 
@@ -215,3 +258,6 @@ If you expect thousands of operations in the MCP registry, this is by design:
 - `npm start` - run compiled stdio server
 - `npm run web` - run compiled Hono HTTP/SSE server on port 3001
 - `npm run web:build` - build then run HTTP/SSE
+- `npm run ui:dev` - run Svelte web UI dev server (`web/`)
+- `npm run ui:build` - build Svelte web UI into `web/dist`
+- `npm run web:full` - build UI + backend and run HTTP server

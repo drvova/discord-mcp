@@ -1,10 +1,16 @@
+import { resolve } from "node:path";
+import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { validator } from "hono/validator";
 import { cors } from "hono/cors";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import type { HttpBindings } from "@hono/node-server";
+import { serveStatic } from "@hono/node-server/serve-static";
 import { RESPONSE_ALREADY_SENT } from "@hono/node-server/utils/response";
 import { z } from "zod";
 import type { OAuthManager } from "./core/OAuthManager.js";
@@ -14,6 +20,10 @@ import type {
     DomainMethod,
 } from "./gateway/domain-registry.js";
 import type { IdentityMode } from "./identity/local-encrypted-identity-store.js";
+import type {
+    PlannedAction,
+    WebUiRuntime,
+} from "./web/runtime.js";
 
 const JsonRpcHttpMessageSchema = z.object({
     id: z.unknown().optional(),
@@ -36,6 +46,46 @@ const OAuthStartQuerySchema = z.object({
 const OAuthCallbackQuerySchema = z.object({
     code: z.string().min(1),
     state: z.string().min(1),
+});
+
+const OidcStartQuerySchema = z.object({
+    returnTo: z.string().optional(),
+    format: z.enum(["redirect", "json"]).optional(),
+});
+
+const SessionIdentityUpdateSchema = z.object({
+    mode: z.enum(["bot", "user"]),
+    rememberMode: z.boolean(),
+});
+
+const ChatCreateThreadSchema = z.object({
+    title: z.string().trim().min(1).max(128).optional(),
+});
+
+const PlannedActionInputSchema: z.ZodType<PlannedAction> = z.object({
+    id: z.string(),
+    method: z.string() as unknown as z.ZodType<DomainMethod>,
+    operation: z.string() as unknown as z.ZodType<DiscordOperation>,
+    params: z.record(z.unknown()),
+    rationale: z.string(),
+    riskTier: z.enum(["low", "medium", "high"]),
+    requiresConfirmation: z.boolean(),
+});
+
+const ChatPlanSchema = z.object({
+    threadId: z.string().trim().min(1).optional(),
+    message: z.string().trim().min(1).max(2000),
+    mode: z.enum(["bot", "user"]).optional(),
+    identityId: z.string().trim().min(1).max(128).optional(),
+    rememberMode: z.boolean().optional(),
+});
+
+const ChatExecuteSchema = z.object({
+    threadId: z.string().trim().min(1),
+    mode: z.enum(["bot", "user"]).optional(),
+    identityId: z.string().trim().min(1).max(128).optional(),
+    confirmWrites: z.boolean().optional(),
+    actions: z.array(PlannedActionInputSchema).min(1),
 });
 
 const jsonRpcBodyValidator = validator("json", (value, c) => {
@@ -78,6 +128,46 @@ const oauthCallbackQueryValidator = validator("query", (value, c) => {
     return parsed.data;
 });
 
+const oidcStartQueryValidator = validator("query", (value, c) => {
+    const parsed = OidcStartQuerySchema.safeParse(value);
+    if (!parsed.success) {
+        return c.json({ error: "Invalid OIDC query parameters" }, 400);
+    }
+    return parsed.data;
+});
+
+const sessionIdentityValidator = validator("json", (value, c) => {
+    const parsed = SessionIdentityUpdateSchema.safeParse(value);
+    if (!parsed.success) {
+        return c.json({ error: "Invalid session identity payload" }, 400);
+    }
+    return parsed.data;
+});
+
+const createThreadValidator = validator("json", (value, c) => {
+    const parsed = ChatCreateThreadSchema.safeParse(value ?? {});
+    if (!parsed.success) {
+        return c.json({ error: "Invalid thread payload" }, 400);
+    }
+    return parsed.data;
+});
+
+const planChatValidator = validator("json", (value, c) => {
+    const parsed = ChatPlanSchema.safeParse(value);
+    if (!parsed.success) {
+        return c.json({ error: "Invalid chat planning payload" }, 400);
+    }
+    return parsed.data;
+});
+
+const executeChatValidator = validator("json", (value, c) => {
+    const parsed = ChatExecuteSchema.safeParse(value);
+    if (!parsed.success) {
+        return c.json({ error: "Invalid chat execution payload" }, 400);
+    }
+    return parsed.data;
+});
+
 export type ParsedDiscordManageCallLike = {
     mode: IdentityMode;
     identityId: string;
@@ -113,7 +203,39 @@ type HttpAppDependencies = {
     getOAuthManager: () => OAuthManager;
     parseBooleanQuery: (value: string | null) => boolean | undefined;
     getAllTools: () => unknown[];
+    webUiRuntime: WebUiRuntime;
+    webUiSessionCookieName: string;
+    webUiSessionCookieTtlSeconds: number;
+    webUiMountPath: string;
+    webUiDistPath: string;
 };
+
+function normalizeMountPath(value: string): string {
+    const trimmed = value.trim();
+    if (!trimmed) {
+        return "/app";
+    }
+
+    const withLeading = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+    return withLeading.replace(/\/+$/, "");
+}
+
+function normalizeReturnToPath(value: string | undefined, mountPath: string): string {
+    if (!value || !value.trim()) {
+        return `${mountPath}/`;
+    }
+
+    const candidate = value.trim();
+    if (!candidate.startsWith("/")) {
+        return `${mountPath}/`;
+    }
+
+    if (!candidate.startsWith(mountPath)) {
+        return `${mountPath}/`;
+    }
+
+    return candidate;
+}
 
 export function createHttpApp(deps: HttpAppDependencies) {
     const {
@@ -127,10 +249,51 @@ export function createHttpApp(deps: HttpAppDependencies) {
         getOAuthManager,
         parseBooleanQuery,
         getAllTools,
+        webUiRuntime,
+        webUiSessionCookieName,
+        webUiSessionCookieTtlSeconds,
+        webUiMountPath,
+        webUiDistPath,
     } = deps;
 
     const activeTransports = new Map<string, SSEServerTransport>();
     const app = new Hono<{ Bindings: HttpBindings }>();
+
+    const mountPath = normalizeMountPath(webUiMountPath);
+    const webDist = resolve(webUiDistPath);
+    const webIndexPath = resolve(webDist, "index.html");
+    const webIndexAvailable = existsSync(webIndexPath);
+    let webIndexCache: string | null = null;
+
+    const readWebIndex = async (): Promise<string> => {
+        if (!webIndexAvailable) {
+            throw new Error(
+                `Web UI build not found. Expected index at ${webIndexPath}`,
+            );
+        }
+        if (webIndexCache !== null) {
+            return webIndexCache;
+        }
+        webIndexCache = await readFile(webIndexPath, "utf8");
+        return webIndexCache;
+    };
+
+    const getAuthenticatedSession = async (
+        c: Context<{ Bindings: HttpBindings }>,
+    ) => {
+        const sessionId = getCookie(c, webUiSessionCookieName);
+        if (!sessionId) {
+            return null;
+        }
+
+        const session = await webUiRuntime.getSession(sessionId);
+        if (!session) {
+            deleteCookie(c, webUiSessionCookieName, { path: "/" });
+            return null;
+        }
+
+        return session;
+    };
 
     app.use(
         "*",
@@ -323,6 +486,10 @@ export function createHttpApp(deps: HttpAppDependencies) {
                 status: "ok",
                 server: "discord-mcp",
                 activeConnections: activeTransports.size,
+                webUi: {
+                    mountPath,
+                    built: webIndexAvailable,
+                },
             },
             200,
         );
@@ -391,10 +558,327 @@ export function createHttpApp(deps: HttpAppDependencies) {
         },
     );
 
+    app.get("/auth/oidc/start", oidcStartQueryValidator, async (c) => {
+        const query = c.req.valid("query");
+        const returnTo = normalizeReturnToPath(query.returnTo, mountPath);
+
+        try {
+            const auth = await webUiRuntime.startOidcAuthentication(returnTo);
+            if (query.format === "json") {
+                return c.json(
+                    {
+                        authorizeUrl: auth.authorizeUrl,
+                        expiresAt: auth.expiresAt,
+                    },
+                    200,
+                );
+            }
+            return c.redirect(auth.authorizeUrl, 302);
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : String(error);
+            return c.json({ error: message }, 500);
+        }
+    });
+
+    app.get("/auth/codex/start", oidcStartQueryValidator, async (c) => {
+        const query = c.req.valid("query");
+        const returnTo = normalizeReturnToPath(query.returnTo, mountPath);
+
+        try {
+            const auth = await webUiRuntime.startOidcAuthentication(returnTo);
+            if (query.format === "json") {
+                return c.json(
+                    {
+                        authorizeUrl: auth.authorizeUrl,
+                        expiresAt: auth.expiresAt,
+                    },
+                    200,
+                );
+            }
+            return c.redirect(auth.authorizeUrl, 302);
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : String(error);
+            return c.json({ error: message }, 500);
+        }
+    });
+
+    app.get("/auth/oidc/callback", oauthCallbackQueryValidator, async (c) => {
+        const query = c.req.valid("query");
+
+        try {
+            const callback = await webUiRuntime.completeOidcAuthentication(
+                query.code,
+                query.state,
+            );
+
+            setCookie(c, webUiSessionCookieName, callback.session.sessionId, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === "production",
+                sameSite: "Lax",
+                path: "/",
+                maxAge: webUiSessionCookieTtlSeconds,
+            });
+
+            const target = normalizeReturnToPath(callback.returnTo, mountPath);
+            return c.redirect(target, 302);
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : String(error);
+            return c.redirect(
+                `${mountPath}/?authError=${encodeURIComponent(message)}`,
+                302,
+            );
+        }
+    });
+
+    app.get("/auth/codex/callback", oauthCallbackQueryValidator, async (c) => {
+        const query = c.req.valid("query");
+
+        try {
+            const callback = await webUiRuntime.completeOidcAuthentication(
+                query.code,
+                query.state,
+            );
+
+            setCookie(c, webUiSessionCookieName, callback.session.sessionId, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === "production",
+                sameSite: "Lax",
+                path: "/",
+                maxAge: webUiSessionCookieTtlSeconds,
+            });
+
+            const target = normalizeReturnToPath(callback.returnTo, mountPath);
+            return c.redirect(target, 302);
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : String(error);
+            return c.redirect(
+                `${mountPath}/?authError=${encodeURIComponent(message)}`,
+                302,
+            );
+        }
+    });
+
+    app.get("/api/session", async (c) => {
+        const session = await getAuthenticatedSession(c);
+        if (!session) {
+            return c.json(
+                {
+                    authenticated: false,
+                    oidcConfigured: webUiRuntime.isOidcConfigured(),
+                    missingOidcFields: webUiRuntime.getOidcMissingConfigFields(),
+                },
+                200,
+            );
+        }
+
+        return c.json(
+            {
+                authenticated: true,
+                session,
+                oidcConfigured: webUiRuntime.isOidcConfigured(),
+            },
+            200,
+        );
+    });
+
+    app.post("/api/session/logout", async (c) => {
+        const sessionId = getCookie(c, webUiSessionCookieName);
+        if (sessionId) {
+            await webUiRuntime.deleteSession(sessionId);
+        }
+
+        deleteCookie(c, webUiSessionCookieName, { path: "/" });
+        return c.json({ ok: true }, 200);
+    });
+
+    app.post("/api/session/identity", sessionIdentityValidator, async (c) => {
+        const session = await getAuthenticatedSession(c);
+        if (!session) {
+            return c.json({ error: "Authentication required" }, 401);
+        }
+
+        const payload = c.req.valid("json");
+        const updated = await webUiRuntime.updateSessionIdentityPreference(
+            session.sessionId,
+            payload.mode,
+            payload.rememberMode,
+        );
+
+        return c.json({ session: updated }, 200);
+    });
+
+    app.get("/api/chat/threads", async (c) => {
+        const session = await getAuthenticatedSession(c);
+        if (!session) {
+            return c.json({ error: "Authentication required" }, 401);
+        }
+
+        const threads = await webUiRuntime.listThreads(session.sessionId);
+        return c.json({ threads }, 200);
+    });
+
+    app.post("/api/chat/threads", createThreadValidator, async (c) => {
+        const session = await getAuthenticatedSession(c);
+        if (!session) {
+            return c.json({ error: "Authentication required" }, 401);
+        }
+
+        const payload = c.req.valid("json");
+        const thread = await webUiRuntime.createThread(
+            session.sessionId,
+            payload.title,
+        );
+        return c.json({ thread }, 200);
+    });
+
+    app.get("/api/chat/threads/:threadId/messages", async (c) => {
+        const session = await getAuthenticatedSession(c);
+        if (!session) {
+            return c.json({ error: "Authentication required" }, 401);
+        }
+
+        const threadId = c.req.param("threadId");
+        if (!threadId) {
+            return c.json({ error: "threadId is required" }, 400);
+        }
+
+        try {
+            const messages = await webUiRuntime.listMessages(
+                session.sessionId,
+                threadId,
+            );
+            return c.json({ messages }, 200);
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : String(error);
+            return c.json({ error: message }, 404);
+        }
+    });
+
+    app.post("/api/chat/plan", planChatValidator, async (c) => {
+        const session = await getAuthenticatedSession(c);
+        if (!session) {
+            return c.json({ error: "Authentication required" }, 401);
+        }
+
+        const payload = c.req.valid("json");
+        const mode = payload.mode ?? (session.rememberMode ? session.defaultMode : null);
+        if (!mode) {
+            return c.json(
+                {
+                    error:
+                        "Mode is required for planning when session preference is not remembered.",
+                },
+                400,
+            );
+        }
+
+        const identityId = payload.identityId || `default-${mode}`;
+        const rememberMode = payload.rememberMode ?? session.rememberMode;
+
+        try {
+            const planned = await webUiRuntime.planMessage({
+                sessionId: session.sessionId,
+                threadId: payload.threadId,
+                message: payload.message,
+                mode,
+                identityId,
+                rememberMode,
+            });
+
+            return c.json(
+                {
+                    thread: planned.thread,
+                    userMessage: planned.userMessage,
+                    assistantMessage: planned.assistantMessage,
+                    plan: planned.plan,
+                },
+                200,
+            );
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : String(error);
+            return c.json({ error: message }, 400);
+        }
+    });
+
+    app.post("/api/chat/execute", executeChatValidator, async (c) => {
+        const session = await getAuthenticatedSession(c);
+        if (!session) {
+            return c.json({ error: "Authentication required" }, 401);
+        }
+
+        const payload = c.req.valid("json");
+        const mode = payload.mode ?? (session.rememberMode ? session.defaultMode : null);
+        if (!mode) {
+            return c.json(
+                {
+                    error:
+                        "Mode is required for execution when session preference is not remembered.",
+                },
+                400,
+            );
+        }
+
+        const identityId = payload.identityId || `default-${mode}`;
+
+        try {
+            const executed = await webUiRuntime.executePlan({
+                sessionId: session.sessionId,
+                threadId: payload.threadId,
+                mode,
+                identityId,
+                confirmWrites: payload.confirmWrites ?? false,
+                actions: payload.actions,
+            });
+
+            return c.json(
+                {
+                    results: executed.results,
+                    assistantMessage: executed.assistantMessage,
+                },
+                200,
+            );
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : String(error);
+            return c.json({ error: message }, 400);
+        }
+    });
+
+    if (webIndexAvailable) {
+        app.use(
+            `${mountPath}/assets/*`,
+            serveStatic({
+                root: webDist,
+                rewriteRequestPath: (path) => path.replace(mountPath, ""),
+            }),
+        );
+
+        app.get(mountPath, (c) => c.redirect(`${mountPath}/`, 302));
+        app.get(`${mountPath}/`, async (c) => {
+            return c.html(await readWebIndex(), 200);
+        });
+        app.get(`${mountPath}/*`, async (c) => {
+            if (c.req.path.startsWith(`${mountPath}/assets/`)) {
+                return c.notFound();
+            }
+            return c.html(await readWebIndex(), 200);
+        });
+    }
+
     app.all("*", (c) => {
         const host = c.req.header("host") || `localhost:${port}`;
+        const uiState = webIndexAvailable
+            ? `\n- ${mountPath}/ - Web chat UI`
+            : `\n- ${mountPath}/ - Web chat UI (build missing: run npm --prefix web run build)`;
+
         return c.text(
-            `Discord MCP Server\n\nMCP Remote Usage:\nnpx -y mcp-remote ${host}\n\nEndpoints:\n- GET /sse - SSE connection\n- POST /message - Message handling\n- GET /health - Health check\n- GET /oauth/discord/start - Generate OAuth install URL\n- GET /oauth/discord/callback - OAuth callback handler\n\nActive connections: ${activeTransports.size}`,
+            `Discord MCP Server\n\nMCP Remote Usage:\nnpx -y mcp-remote ${host}\n\nEndpoints:\n- GET /sse - SSE connection\n- POST /message - Message handling\n- GET /health - Health check\n- GET /oauth/discord/start - Generate OAuth install URL\n- GET /oauth/discord/callback - OAuth callback handler\n- GET /auth/codex/start - Start Codex-style login flow\n- GET /auth/codex/callback - Complete Codex-style login flow\n- GET /auth/oidc/start - Start OIDC login flow (alias)\n- GET /auth/oidc/callback - Complete OIDC login flow (alias)\n- GET /api/session - Current web session\n- GET /api/chat/threads - Chat thread list${uiState}\n\nActive connections: ${activeTransports.size}`,
             200,
         );
     });

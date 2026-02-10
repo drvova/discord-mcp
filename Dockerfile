@@ -3,10 +3,14 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
+COPY web/package*.json ./web/
 COPY tsconfig.json ./
 COPY src ./src
+COPY web ./web
 
 RUN npm ci
+RUN npm --prefix web ci
+RUN npm --prefix web run build
 RUN npm run build
 
 FROM node:20-alpine
@@ -22,6 +26,7 @@ RUN npm ci --only=production --ignore-scripts && npm cache clean --force
 
 # Copy built application
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/web/dist ./web/dist
 
 ENV DISCORD_TOKEN=""
 ENV DISCORD_GUILD_ID=""
