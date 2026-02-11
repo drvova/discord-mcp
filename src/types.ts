@@ -1418,6 +1418,18 @@ export const DiscordMetaPreflightSchema = z.object({
         .enum(["strict", "permissive"])
         .optional()
         .describe("Policy mode (strict by default)"),
+    strictContextCheck: z
+        .boolean()
+        .optional()
+        .describe(
+            "When true (default), unresolved targets/context requirements fail preflight canExecute.",
+        ),
+    strictArgCheck: z
+        .boolean()
+        .optional()
+        .describe(
+            "When true, preflight enforces providedArgCount >= requiredArgCount when available.",
+        ),
 });
 
 export const DiscordExecInvokeSchema = z.object({
@@ -1451,6 +1463,18 @@ export const DiscordExecInvokeSchema = z.object({
         .boolean()
         .optional()
         .describe("Dry-run only (defaults to true for safe-by-default behavior)"),
+    requirePreflightPass: z
+        .boolean()
+        .optional()
+        .describe(
+            "Require preflight canExecute=true before non-dry-run execution (defaults to true when dryRun=false).",
+        ),
+    preflightToken: z
+        .string()
+        .optional()
+        .describe(
+            "Optional preflight token to bind invocation to a preflight input set.",
+        ),
     allowWrite: z
         .boolean()
         .optional()
@@ -1473,6 +1497,19 @@ export const DiscordExecBatchSchema = z.object({
         .boolean()
         .optional()
         .describe("Dry-run all items (defaults to true)"),
+    haltOnPolicyBlock: z
+        .boolean()
+        .optional()
+        .describe(
+            "When true, run preflight for all items and abort before execution if any item is blocked.",
+        ),
+    maxParallelism: z
+        .number()
+        .int()
+        .min(1)
+        .max(32)
+        .optional()
+        .describe("Max concurrent item executions (defaults to 4)"),
     items: z
         .array(DiscordExecInvokeSchema)
         .min(1)

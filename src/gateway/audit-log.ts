@@ -12,6 +12,10 @@ export type AuditEvent = {
     riskTier: AuditRiskTier;
     status: "success" | "error";
     durationMs: number;
+    compatTranslated?: boolean;
+    preflightCanExecute?: boolean;
+    blockingReasonCount?: number;
+    batchMode?: "best_effort" | "all_or_none";
     error?: string;
 };
 
@@ -45,6 +49,28 @@ export function writeAuditEvent(event: AuditEvent): void {
         "discord.risk_tier": event.riskTier,
         "discord.mode": event.mode,
         "discord.method": event.method,
+        ...(event.compatTranslated !== undefined
+            ? {
+                  "discord.compat_translated": String(event.compatTranslated),
+              }
+            : {}),
+        ...(event.preflightCanExecute !== undefined
+            ? {
+                  "discord.preflight_can_execute": String(
+                      event.preflightCanExecute,
+                  ),
+              }
+            : {}),
+        ...(event.blockingReasonCount !== undefined
+            ? {
+                  "discord.blocking_reason_count": event.blockingReasonCount,
+              }
+            : {}),
+        ...(event.batchMode
+            ? {
+                  "discord.batch_mode": event.batchMode,
+              }
+            : {}),
     });
 
     const auditPath = process.env.DISCORD_MCP_AUDIT_LOG_PATH;

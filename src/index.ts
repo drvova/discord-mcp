@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import "dotenv/config";
+import { createHash } from "node:crypto";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -62,6 +63,11 @@ const server = new Server(
     },
 );
 
+const LEGACY_DISCORDJS_DISCOVERY_OPERATION = "discordjs.meta.symbols";
+const LEGACY_DISCORDPKG_DISCOVERY_OPERATION = "discordpkg.meta.symbols";
+const LEGACY_DISCORDJS_INVOKE_PATTERN = /^discordjs\.([^.]+)\.(.+)$/i;
+const LEGACY_DISCORDPKG_INVOKE_PATTERN = /^discordpkg\.([^.]+)\.([^.]+)\.(.+)$/i;
+
 let discordService: DiscordService;
 let discordController: DiscordController;
 let oauthManager: OAuthManager | null = null;
@@ -78,6 +84,8 @@ type ParsedDiscordManageCall = {
     operation: DiscordOperation;
     params: Record<string, unknown>;
     riskTier: RiskTier;
+    compatTranslated: boolean;
+    translatedFromOperation?: string;
 };
 
 type GenericSchema = {
@@ -88,6 +96,20 @@ type GenericSchema = {
     _def?: {
         shape?: () => Record<string, unknown>;
     };
+};
+
+type LegacyTranslation = {
+    operationCandidate: string;
+    injectedParams: Record<string, unknown>;
+    treatArrayAsInvokeArgs: boolean;
+    translatedFromOperation: string;
+};
+
+type PreflightEvaluation = {
+    payload: Record<string, unknown>;
+    canExecute: boolean;
+    blockingReasons: string[];
+    preflightToken: string;
 };
 
 const OPERATION_SCHEMA_BY_NAME: Record<string, GenericSchema> = {
@@ -222,6 +244,132 @@ function normalizeParamsBySchemaOrder(
     return ordered;
 }
 
+function coerceLegacyPayload(rawPayload: unknown): Record<string, unknown> {
+    if (Array.isArray(rawPayload)) {
+        return { args: rawPayload };
+    }
+
+    if (rawPayload && typeof rawPayload === "object") {
+        return rawPayload as Record<string, unknown>;
+    }
+
+    throw new Error(
+        "Legacy dynamic operations require payload as object or array.",
+    );
+}
+
+function decodeOperationSymbol(encodedSymbol: string): string {
+    try {
+        return decodeURIComponent(encodedSymbol);
+    } catch {
+        return encodedSymbol;
+    }
+}
+
+function normalizeLegacyKindToken(rawKind: string): string {
+    const normalized = rawKind.trim().toLowerCase();
+    switch (normalized) {
+        case "classes":
+            return "class";
+        case "functions":
+            return "function";
+        case "enums":
+            return "enum";
+        case "interfaces":
+            return "interface";
+        case "types":
+            return "type";
+        case "variables":
+            return "variable";
+        case "constants":
+        case "consts":
+            return "const";
+        default:
+            return normalized;
+    }
+}
+
+function translateLegacyOperation(
+    rawOperation: string,
+): LegacyTranslation | null {
+    const normalized = rawOperation.trim();
+    const lower = normalized.toLowerCase();
+
+    if (lower === LEGACY_DISCORDJS_DISCOVERY_OPERATION) {
+        return {
+            operationCandidate: DISCORD_META_SYMBOLS_OPERATION,
+            injectedParams: { packageAlias: "discordjs" },
+            treatArrayAsInvokeArgs: false,
+            translatedFromOperation: normalized,
+        };
+    }
+
+    if (lower === LEGACY_DISCORDPKG_DISCOVERY_OPERATION) {
+        return {
+            operationCandidate: DISCORD_META_SYMBOLS_OPERATION,
+            injectedParams: {},
+            treatArrayAsInvokeArgs: false,
+            translatedFromOperation: normalized,
+        };
+    }
+
+    const discordJsInvokeMatch = normalized.match(LEGACY_DISCORDJS_INVOKE_PATTERN);
+    if (discordJsInvokeMatch) {
+        const rawKind = normalizeLegacyKindToken(discordJsInvokeMatch[1]);
+        const encodedSymbol = discordJsInvokeMatch[2];
+        if (rawKind === "meta") {
+            return {
+                operationCandidate: DISCORD_META_SYMBOLS_OPERATION,
+                injectedParams: { packageAlias: "discordjs" },
+                treatArrayAsInvokeArgs: false,
+                translatedFromOperation: normalized,
+            };
+        }
+
+        return {
+            operationCandidate: DISCORD_EXEC_INVOKE_OPERATION,
+            injectedParams: {
+                packageAlias: "discordjs",
+                kind: rawKind,
+                symbol: decodeOperationSymbol(encodedSymbol),
+                invoke: rawKind === "function",
+            },
+            treatArrayAsInvokeArgs: true,
+            translatedFromOperation: normalized,
+        };
+    }
+
+    const discordPkgInvokeMatch = normalized.match(LEGACY_DISCORDPKG_INVOKE_PATTERN);
+    if (discordPkgInvokeMatch) {
+        const packageAlias = discordPkgInvokeMatch[1].trim().toLowerCase();
+        const rawKind = normalizeLegacyKindToken(discordPkgInvokeMatch[2]);
+        const encodedSymbol = discordPkgInvokeMatch[3];
+
+        if (packageAlias === "meta" || rawKind === "meta") {
+            return {
+                operationCandidate: DISCORD_META_SYMBOLS_OPERATION,
+                injectedParams: {},
+                treatArrayAsInvokeArgs: false,
+                translatedFromOperation: normalized,
+            };
+        }
+
+        return {
+            operationCandidate: DISCORD_EXEC_INVOKE_OPERATION,
+            injectedParams: {
+                packageAlias,
+                kind: rawKind,
+                symbol: decodeOperationSymbol(encodedSymbol),
+                invoke: rawKind === "function",
+            },
+            treatArrayAsInvokeArgs: true,
+            translatedFromOperation: normalized,
+        };
+    }
+
+    return null;
+}
+
 function inferRiskTier(
     operation: DiscordOperation,
     params: Record<string, unknown>,
@@ -334,7 +482,13 @@ function parseDiscordManageCall(
         );
     }
 
-    const operation = resolveOperation(rawOperation);
+    const rawPayload = rawParams !== undefined ? rawParams : rawMethodArgs;
+    const translation = translateLegacyOperation(rawOperation);
+
+    const operationCandidate = translation
+        ? translation.operationCandidate
+        : rawOperation;
+    const operation = resolveOperation(operationCandidate);
 
     let method: DomainMethod;
     if (typeof rawMethod === "string" && rawMethod.trim()) {
@@ -344,10 +498,20 @@ function parseDiscordManageCall(
         method = getDomainMethodForOperation(operation);
     }
 
-    const baseParams =
-        rawParams !== undefined
-            ? coerceOperationArgs(rawParams, operation)
-            : coerceOperationArgs(rawMethodArgs, operation);
+    let baseParams: Record<string, unknown>;
+    if (translation?.treatArrayAsInvokeArgs) {
+        baseParams = coerceLegacyPayload(rawPayload);
+    } else {
+        baseParams = coerceOperationArgs(rawPayload, operation);
+    }
+
+    if (translation) {
+        baseParams = {
+            ...baseParams,
+            ...translation.injectedParams,
+        };
+    }
+
     const normalizedParams = normalizeParamsBySchemaOrder(operation, baseParams);
     const parsedParams = getSchemaForOperation(operation).parse(
         normalizedParams,
@@ -362,6 +526,8 @@ function parseDiscordManageCall(
         operation,
         params: parsedParams,
         riskTier,
+        compatTranslated: Boolean(translation),
+        translatedFromOperation: translation?.translatedFromOperation,
     };
 }
 
@@ -371,6 +537,45 @@ function parseJsonMaybe(payload: string): unknown {
     } catch {
         return payload;
     }
+}
+
+function stableSerialize(value: unknown): string {
+    if (value === null || value === undefined) {
+        return "null";
+    }
+
+    if (typeof value !== "object") {
+        return JSON.stringify(value);
+    }
+
+    if (Array.isArray(value)) {
+        return `[${value.map((item) => stableSerialize(item)).join(",")}]`;
+    }
+
+    const objectValue = value as Record<string, unknown>;
+    const keys = Object.keys(objectValue).sort((a, b) => a.localeCompare(b));
+    const pairs = keys.map((key) => `${JSON.stringify(key)}:${stableSerialize(objectValue[key])}`);
+    return `{${pairs.join(",")}}`;
+}
+
+function buildPreflightToken(input: {
+    packageAlias: string;
+    symbol: string;
+    kind?: string;
+    target?: unknown;
+    context?: unknown;
+    args?: unknown;
+    allowWrite?: unknown;
+    policyMode?: unknown;
+}): string {
+    const digest = createHash("sha256")
+        .update(stableSerialize(input))
+        .digest("hex");
+    return `pf_${digest.slice(0, 40)}`;
+}
+
+function toNumber(value: unknown): number {
+    return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 function toPolicyRiskTier(behaviorClass: string): RiskTier {
@@ -458,12 +663,230 @@ function toOperationalMatrix(symbol: DiscordJsSymbol): Record<string, unknown> {
     };
 }
 
+function buildResponseWithMetadata(
+    payload: unknown,
+    metadata: Record<string, unknown>,
+): string {
+    if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+        return JSON.stringify(
+            {
+                ...(payload as Record<string, unknown>),
+                ...metadata,
+            },
+            null,
+            2,
+        );
+    }
+
+    return JSON.stringify(
+        {
+            result: payload,
+            ...metadata,
+        },
+        null,
+        2,
+    );
+}
+
+async function evaluatePreflight(input: {
+    packageAlias: string;
+    symbol: string;
+    kind?:
+        | "class"
+        | "enum"
+        | "interface"
+        | "function"
+        | "type"
+        | "const"
+        | "variable"
+        | "event"
+        | "namespace"
+        | "external";
+    target?:
+        | "auto"
+        | "client"
+        | "guild"
+        | "channel"
+        | "thread"
+        | "message"
+        | "user"
+        | "member"
+        | "role"
+        | "emoji"
+        | "sticker"
+        | "event"
+        | "invite"
+        | "webhook"
+        | "guild_manager"
+        | "channel_manager"
+        | "user_manager"
+        | "member_manager"
+        | "role_manager"
+        | "emoji_manager"
+        | "sticker_manager"
+        | "scheduled_event_manager"
+        | "message_manager"
+        | "thread_manager"
+        | "application_command_manager"
+        | "application_emoji_manager";
+    context?: Record<string, unknown>;
+    args?: unknown[];
+    allowWrite?: boolean;
+    policyMode?: "strict" | "permissive";
+    strictContextCheck?: boolean;
+    strictArgCheck?: boolean;
+}): Promise<PreflightEvaluation> {
+    const strictContextCheck = input.strictContextCheck ?? true;
+    const strictArgCheck = input.strictArgCheck ?? false;
+    const preflightToken = buildPreflightToken({
+        packageAlias: input.packageAlias,
+        symbol: input.symbol,
+        kind: input.kind,
+        target: input.target,
+        context: input.context,
+        args: input.args,
+        allowWrite: input.allowWrite,
+        policyMode: input.policyMode,
+    });
+
+    const preflightRaw = await discordService.invokeDiscordJsSymbol({
+        packageAlias: input.packageAlias,
+        symbol: input.symbol,
+        kind: input.kind,
+        invoke: true,
+        dryRun: true,
+        allowWrite: input.allowWrite ?? false,
+        policyMode: input.policyMode,
+        args: input.args,
+        target: input.target,
+        context: input.context,
+    });
+
+    const parsed = parseJsonMaybe(preflightRaw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        const blockingReasons = [
+            "Preflight produced a non-object payload and cannot be evaluated safely.",
+        ];
+        return {
+            payload: {
+                canExecute: false,
+                blockingReasons,
+                strictContextCheck,
+                strictArgCheck,
+                preflightToken,
+                preflightResult: parsed,
+            },
+            canExecute: false,
+            blockingReasons,
+            preflightToken,
+        };
+    }
+
+    const record = parsed as Record<string, unknown>;
+    const blockingReasons: string[] = [];
+
+    if (record.callable !== true) {
+        blockingReasons.push(
+            "Symbol is not callable for execution in the current resolution context.",
+        );
+    }
+
+    if (record.policyDecision !== "allow") {
+        blockingReasons.push(
+            typeof record.blockedReason === "string" && record.blockedReason
+                ? record.blockedReason
+                : "Policy decision is not allow.",
+        );
+    }
+
+    if (strictContextCheck) {
+        const invocationMode =
+            typeof record.invocationMode === "string"
+                ? record.invocationMode
+                : "metadata";
+        const contextRequirements = Array.isArray(record.contextRequirements)
+            ? record.contextRequirements
+            : [];
+        const resolvedTarget =
+            record.resolvedTarget && typeof record.resolvedTarget === "object"
+                ? (record.resolvedTarget as Record<string, unknown>)
+                : null;
+        const targetResolved =
+            resolvedTarget && typeof resolvedTarget.resolved === "boolean"
+                ? resolvedTarget.resolved
+                : true;
+
+        if (
+            !targetResolved &&
+            (invocationMode === "instance" || contextRequirements.length > 0)
+        ) {
+            blockingReasons.push(
+                "Target/context resolution is incomplete under strictContextCheck.",
+            );
+        }
+    }
+
+    if (strictArgCheck) {
+        const requiredArgCount = toNumber(record.requiredArgCount);
+        const providedArgCount = toNumber(
+            record.providedArgCount ?? record.argCount,
+        );
+        if (requiredArgCount > providedArgCount) {
+            blockingReasons.push(
+                `Provided args (${providedArgCount}) are fewer than required args (${requiredArgCount}).`,
+            );
+        }
+    }
+
+    const canExecute = blockingReasons.length === 0;
+    return {
+        payload: {
+            ...record,
+            strictContextCheck,
+            strictArgCheck,
+            canExecute,
+            blockingReasons,
+            preflightToken,
+        },
+        canExecute,
+        blockingReasons,
+        preflightToken,
+    };
+}
+
+async function runWithConcurrency<TItem, TResult>(
+    items: readonly TItem[],
+    limit: number,
+    worker: (item: TItem, index: number) => Promise<TResult>,
+): Promise<TResult[]> {
+    const results = new Array<TResult>(items.length);
+    let nextIndex = 0;
+
+    const runWorker = async (): Promise<void> => {
+        while (true) {
+            const index = nextIndex;
+            nextIndex += 1;
+            if (index >= items.length) {
+                return;
+            }
+            results[index] = await worker(items[index], index);
+        }
+    };
+
+    const workerCount = Math.min(limit, Math.max(items.length, 1));
+    await Promise.all(
+        Array.from({ length: workerCount }, () => runWorker()),
+    );
+
+    return results;
+}
+
 function getAllTools() {
     return [
         {
             name: "discord_manage",
             description:
-                "Discord runtime control surface. Operations: discord.meta.packages, discord.meta.symbols, discord.meta.preflight, discord.exec.invoke, discord.exec.batch",
+                "Discord runtime control surface. vNext operations: discord.meta.packages, discord.meta.symbols, discord.meta.preflight, discord.exec.invoke, discord.exec.batch. Legacy discordjs/discordpkg dynamic operations are translated for compatibility.",
             inputSchema: {
                 type: "object",
                 properties: {
@@ -486,15 +909,8 @@ function getAllTools() {
                     },
                     operation: {
                         type: "string",
-                        enum: [
-                            DISCORD_META_PACKAGES_OPERATION,
-                            DISCORD_META_SYMBOLS_OPERATION,
-                            DISCORD_META_PREFLIGHT_OPERATION,
-                            DISCORD_EXEC_INVOKE_OPERATION,
-                            DISCORD_EXEC_BATCH_OPERATION,
-                        ],
                         description:
-                            "Operation key from the unified Discord runtime protocol.",
+                            "vNext operations: discord.meta.packages, discord.meta.symbols, discord.meta.preflight, discord.exec.invoke, discord.exec.batch. Legacy translations are also accepted.",
                     },
                     params: {
                         type: "object",
@@ -520,61 +936,146 @@ function getAllTools() {
     ];
 }
 
+async function executeInvokeOperation(
+    parsed: ReturnType<typeof schemas.DiscordExecInvokeSchema.parse>,
+    preflightOverride?: PreflightEvaluation,
+): Promise<{ raw: string; preflight?: PreflightEvaluation }> {
+    const normalized = {
+        packageAlias: parsed.packageAlias,
+        symbol: parsed.symbol,
+        kind: parsed.kind,
+        invoke: parsed.invoke ?? true,
+        dryRun: parsed.dryRun ?? true,
+        requirePreflightPass:
+            parsed.requirePreflightPass ?? (parsed.dryRun === false),
+        preflightToken: parsed.preflightToken,
+        allowWrite: parsed.allowWrite ?? false,
+        policyMode: parsed.policyMode,
+        args: parsed.args,
+        target: parsed.target,
+        context: parsed.context,
+    };
+
+    if (normalized.dryRun) {
+        const raw = await discordService.invokeDiscordJsSymbol({
+            packageAlias: normalized.packageAlias,
+            symbol: normalized.symbol,
+            kind: normalized.kind,
+            invoke: normalized.invoke,
+            dryRun: true,
+            allowWrite: normalized.allowWrite,
+            policyMode: normalized.policyMode,
+            args: normalized.args,
+            target: normalized.target,
+            context: normalized.context,
+        });
+
+        return { raw };
+    }
+
+    let preflight: PreflightEvaluation | undefined;
+    if (normalized.requirePreflightPass) {
+        preflight =
+            preflightOverride ||
+            (await evaluatePreflight({
+                packageAlias: normalized.packageAlias,
+                symbol: normalized.symbol,
+                kind: normalized.kind,
+                target: normalized.target,
+                context: normalized.context,
+                args: normalized.args,
+                allowWrite: normalized.allowWrite,
+                policyMode: normalized.policyMode,
+                strictContextCheck: true,
+                strictArgCheck: false,
+            }));
+
+        if (
+            normalized.preflightToken &&
+            normalized.preflightToken !== preflight.preflightToken
+        ) {
+            throw new Error(
+                `preflightToken mismatch for symbol '${normalized.symbol}'. Run preflight again and use the latest token.`,
+            );
+        }
+
+        if (!preflight.canExecute) {
+            throw new Error(
+                `Preflight blocked execution for '${normalized.symbol}': ${preflight.blockingReasons.join(" | ")}`,
+            );
+        }
+    }
+
+    const raw = await discordService.invokeDiscordJsSymbol({
+        packageAlias: normalized.packageAlias,
+        symbol: normalized.symbol,
+        kind: normalized.kind,
+        invoke: normalized.invoke,
+        dryRun: false,
+        allowWrite: normalized.allowWrite,
+        policyMode: normalized.policyMode,
+        args: normalized.args,
+        target: normalized.target,
+        context: normalized.context,
+    });
+
+    return { raw, preflight };
+}
+
 async function executeBatchOperation(
     params: Record<string, unknown>,
 ): Promise<string> {
     const parsed = schemas.DiscordExecBatchSchema.parse(params);
     const mode = parsed.mode ?? "best_effort";
     const defaultDryRun = parsed.dryRun ?? true;
+    const haltOnPolicyBlock = parsed.haltOnPolicyBlock ?? mode === "all_or_none";
+    const maxParallelism = parsed.maxParallelism ?? 4;
+
     const normalizedItems = parsed.items.map((item) => ({
         ...item,
         invoke: item.invoke ?? true,
         dryRun: item.dryRun ?? defaultDryRun,
+        requirePreflightPass:
+            item.requirePreflightPass ?? (item.dryRun === false ? true : false),
         allowWrite: item.allowWrite ?? false,
     }));
 
-    if (mode === "all_or_none" && normalizedItems.some((item) => item.dryRun === false)) {
-        const preflights = [] as Array<Record<string, unknown>>;
-        let blocked = false;
+    const preflights: Array<Record<string, unknown>> = [];
+    const preflightByIndex = new Map<number, PreflightEvaluation>();
 
+    if (haltOnPolicyBlock) {
         for (let index = 0; index < normalizedItems.length; index += 1) {
             const item = normalizedItems[index];
-            const preflightRaw = await discordService.invokeDiscordJsSymbol({
+            const preflight = await evaluatePreflight({
                 packageAlias: item.packageAlias,
                 symbol: item.symbol,
                 kind: item.kind,
-                invoke: item.invoke,
-                dryRun: true,
-                allowWrite: item.allowWrite,
-                policyMode: item.policyMode,
-                args: item.args,
                 target: item.target,
                 context: item.context,
+                args: item.args,
+                allowWrite: item.allowWrite,
+                policyMode: item.policyMode,
+                strictContextCheck: true,
+                strictArgCheck: false,
             });
-            const preflightParsed = parseJsonMaybe(preflightRaw);
-            const canExecute =
-                typeof preflightParsed === "object" &&
-                preflightParsed !== null &&
-                (preflightParsed as Record<string, unknown>).callable === true &&
-                (preflightParsed as Record<string, unknown>).policyDecision === "allow";
-
-            if (!canExecute) {
-                blocked = true;
-            }
-
+            preflightByIndex.set(index, preflight);
             preflights.push({
                 index,
-                canExecute,
-                preflight: preflightParsed,
+                canExecute: preflight.canExecute,
+                blockingReasons: preflight.blockingReasons,
+                preflightToken: preflight.preflightToken,
+                preflight: preflight.payload,
             });
         }
 
-        if (blocked) {
+        if (preflights.some((entry) => entry.canExecute !== true)) {
             return JSON.stringify(
                 {
                     mode,
+                    haltedOnPolicyBlock: true,
                     executed: false,
-                    reason: "Preflight failed for one or more batch items.",
+                    reason:
+                        "Preflight blocked one or more batch items before execution.",
                     preflights,
                 },
                 null,
@@ -583,55 +1084,93 @@ async function executeBatchOperation(
         }
     }
 
-    const results: Array<Record<string, unknown>> = [];
-    let successCount = 0;
-    let errorCount = 0;
+    if (mode === "all_or_none") {
+        const results: Array<Record<string, unknown>> = [];
+        let successCount = 0;
+        let errorCount = 0;
 
-    for (let index = 0; index < normalizedItems.length; index += 1) {
-        const item = normalizedItems[index];
-        try {
-            const raw = await discordService.invokeDiscordJsSymbol({
-                packageAlias: item.packageAlias,
-                symbol: item.symbol,
-                kind: item.kind,
-                invoke: item.invoke,
-                dryRun: item.dryRun,
-                allowWrite: item.allowWrite,
-                policyMode: item.policyMode,
-                args: item.args,
-                target: item.target,
-                context: item.context,
-            });
-
-            results.push({
-                index,
-                status: "success",
-                dryRun: item.dryRun,
-                result: parseJsonMaybe(raw),
-            });
-            successCount += 1;
-        } catch (error) {
-            results.push({
-                index,
-                status: "error",
-                dryRun: item.dryRun,
-                error: error instanceof Error ? error.message : String(error),
-            });
-            errorCount += 1;
-
-            if (mode === "all_or_none") {
+        for (let index = 0; index < normalizedItems.length; index += 1) {
+            const item = normalizedItems[index];
+            try {
+                const { raw, preflight } = await executeInvokeOperation(
+                    item,
+                    preflightByIndex.get(index),
+                );
+                results.push({
+                    index,
+                    status: "success",
+                    dryRun: item.dryRun,
+                    result: parseJsonMaybe(raw),
+                    preflightToken: preflight?.preflightToken,
+                });
+                successCount += 1;
+            } catch (error) {
+                results.push({
+                    index,
+                    status: "error",
+                    dryRun: item.dryRun,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+                errorCount += 1;
                 break;
             }
         }
+
+        return JSON.stringify(
+            {
+                mode,
+                haltOnPolicyBlock,
+                total: normalizedItems.length,
+                successCount,
+                errorCount,
+                results,
+                ...(preflights.length > 0 ? { preflights } : {}),
+            },
+            null,
+            2,
+        );
     }
+
+    const results = await runWithConcurrency(
+        normalizedItems,
+        maxParallelism,
+        async (item, index) => {
+            try {
+                const { raw, preflight } = await executeInvokeOperation(
+                    item,
+                    preflightByIndex.get(index),
+                );
+                return {
+                    index,
+                    status: "success",
+                    dryRun: item.dryRun,
+                    result: parseJsonMaybe(raw),
+                    preflightToken: preflight?.preflightToken,
+                } satisfies Record<string, unknown>;
+            } catch (error) {
+                return {
+                    index,
+                    status: "error",
+                    dryRun: item.dryRun,
+                    error: error instanceof Error ? error.message : String(error),
+                } satisfies Record<string, unknown>;
+            }
+        },
+    );
+
+    const successCount = results.filter((item) => item.status === "success").length;
+    const errorCount = results.length - successCount;
 
     return JSON.stringify(
         {
             mode,
+            haltOnPolicyBlock,
+            maxParallelism,
             total: normalizedItems.length,
             successCount,
             errorCount,
             results,
+            ...(preflights.length > 0 ? { preflights } : {}),
         },
         null,
         2,
@@ -644,12 +1183,15 @@ async function executeDiscordManageOperation(
     const { operation, params } = parsedCall;
     const startedAt = Date.now();
     let status: "success" | "error" = "success";
+    let preflightCanExecute: boolean | undefined;
+    let blockingReasonCount: number | undefined;
+    let batchMode: "best_effort" | "all_or_none" | undefined;
     const operationType = isDiscordWriteOperation(operation)
         ? "execution"
         : "metadata";
 
     try {
-        return await withSpan(
+        const rawResult = await withSpan(
             "discord_manage.execute",
             {
                 "discord.mode": parsedCall.mode,
@@ -657,6 +1199,7 @@ async function executeDiscordManageOperation(
                 "discord.operation": parsedCall.operation,
                 "discord.operation_type": operationType,
                 "discord.identity_id": parsedCall.identityId,
+                "discord.compat_translated": String(parsedCall.compatTranslated),
             },
             async () => {
                 if (isDiscordMetaPackagesOperation(operation)) {
@@ -735,67 +1278,53 @@ async function executeDiscordManageOperation(
 
                 if (isDiscordMetaPreflightOperation(operation)) {
                     const parsed = schemas.DiscordMetaPreflightSchema.parse(params);
-                    const preflightRaw = await discordService.invokeDiscordJsSymbol({
+                    const evaluation = await evaluatePreflight({
                         packageAlias: parsed.packageAlias,
                         symbol: parsed.symbol,
                         kind: parsed.kind,
-                        invoke: true,
-                        dryRun: true,
-                        allowWrite: parsed.allowWrite ?? false,
-                        policyMode: parsed.policyMode,
-                        args: parsed.args,
                         target: parsed.target,
                         context: parsed.context,
+                        args: parsed.args,
+                        allowWrite: parsed.allowWrite ?? false,
+                        policyMode: parsed.policyMode,
+                        strictContextCheck: parsed.strictContextCheck,
+                        strictArgCheck: parsed.strictArgCheck,
                     });
-                    const preflightResult = parseJsonMaybe(preflightRaw);
-                    if (typeof preflightResult === "object" && preflightResult !== null) {
-                        const record = preflightResult as Record<string, unknown>;
-                        const canExecute =
-                            record.callable === true &&
-                            record.policyDecision === "allow";
-                        return JSON.stringify(
-                            {
-                                ...record,
-                                canExecute,
-                            },
-                            null,
-                            2,
-                        );
-                    }
-
-                    return JSON.stringify(
-                        {
-                            canExecute: false,
-                            result: preflightResult,
-                        },
-                        null,
-                        2,
-                    );
+                    preflightCanExecute = evaluation.canExecute;
+                    blockingReasonCount = evaluation.blockingReasons.length;
+                    return JSON.stringify(evaluation.payload, null, 2);
                 }
 
                 if (isDiscordExecInvokeOperation(operation)) {
                     const parsed = schemas.DiscordExecInvokeSchema.parse(params);
-                    return await discordService.invokeDiscordJsSymbol({
-                        packageAlias: parsed.packageAlias,
-                        symbol: parsed.symbol,
-                        kind: parsed.kind,
-                        invoke: parsed.invoke ?? true,
-                        dryRun: parsed.dryRun ?? true,
-                        allowWrite: parsed.allowWrite ?? false,
-                        policyMode: parsed.policyMode,
-                        args: parsed.args,
-                        target: parsed.target,
-                        context: parsed.context,
-                    });
+                    const result = await executeInvokeOperation(parsed);
+                    if (result.preflight) {
+                        preflightCanExecute = result.preflight.canExecute;
+                        blockingReasonCount = result.preflight.blockingReasons.length;
+                    }
+                    return result.raw;
                 }
 
                 if (isDiscordExecBatchOperation(operation)) {
+                    const parsedBatch = schemas.DiscordExecBatchSchema.parse(params);
+                    batchMode = parsedBatch.mode ?? "best_effort";
                     return await executeBatchOperation(params);
                 }
 
                 throw new Error(`Unsupported operation: ${operation}`);
             },
         );
+
+        const parsedResult = parseJsonMaybe(rawResult);
+        if (parsedCall.compatTranslated) {
+            return buildResponseWithMetadata(parsedResult, {
+                compatTranslated: true,
+                translatedFromOperation: parsedCall.translatedFromOperation,
+                translatedToOperation: parsedCall.operation,
+            });
+        }
+
+        return rawResult;
     } catch (error) {
         status = "error";
         throw error;
@@ -809,9 +1338,25 @@ async function executeDiscordManageOperation(
                 "discord.operation_type": operationType,
                 "discord.risk_tier": parsedCall.riskTier,
                 "discord.status": status,
+                "discord.compat_translated": String(parsedCall.compatTranslated),
+                ...(preflightCanExecute !== undefined
+                    ? {
+                          "discord.preflight.can_execute": String(
+                              preflightCanExecute,
+                          ),
+                      }
+                    : {}),
+                ...(batchMode ? { "discord.batch.mode": batchMode } : {}),
             },
             Date.now() - startedAt,
         );
+
+        if (blockingReasonCount !== undefined) {
+            logger.debug("Preflight blocking reason count recorded", {
+                operation: parsedCall.operation,
+                blockingReasonCount,
+            });
+        }
     }
 }
 
@@ -872,9 +1417,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                             return executeDiscordManageOperation(parsedCall);
                         },
                     );
-                    const response = {
-                        content: [{ type: "text", text: result }],
-                    };
 
                     writeAuditEvent({
                         identityId: parsedCall.identityId,
@@ -884,9 +1426,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                         riskTier: parsedCall.riskTier,
                         status: "success",
                         durationMs: Date.now() - operationStartedAt,
+                        compatTranslated: parsedCall.compatTranslated,
                     });
 
-                    return response;
+                    return {
+                        content: [{ type: "text", text: result }],
+                    };
                 } catch (error) {
                     writeAuditEvent({
                         identityId: parsedCall.identityId,
@@ -896,6 +1441,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                         riskTier: parsedCall.riskTier,
                         status: "error",
                         durationMs: Date.now() - operationStartedAt,
+                        compatTranslated: parsedCall.compatTranslated,
                         error: error instanceof Error ? error.message : String(error),
                     });
                     throw error;

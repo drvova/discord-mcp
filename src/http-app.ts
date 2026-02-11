@@ -89,6 +89,8 @@ export type ParsedDiscordManageCallLike = {
     operation: DiscordOperation;
     params: Record<string, unknown>;
     riskTier: AuditRiskTier;
+    compatTranslated: boolean;
+    translatedFromOperation?: string;
 };
 
 type IdentityWorkerPoolLike = {
@@ -256,6 +258,7 @@ export function createHttpApp(deps: HttpAppDependencies) {
                         riskTier: parsedCall.riskTier,
                         status: "success",
                         durationMs: Date.now() - startedAt,
+                        compatTranslated: parsedCall.compatTranslated,
                     });
                 } catch (error) {
                     writeAuditEvent({
@@ -266,6 +269,7 @@ export function createHttpApp(deps: HttpAppDependencies) {
                         riskTier: parsedCall.riskTier,
                         status: "error",
                         durationMs: Date.now() - startedAt,
+                        compatTranslated: parsedCall.compatTranslated,
                         error:
                             error instanceof Error
                                 ? error.message

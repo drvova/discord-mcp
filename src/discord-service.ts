@@ -479,6 +479,10 @@ export class DiscordService {
                         kind === "function" &&
                         callable !== null &&
                         typeof callable === "function";
+                    const requiredArgCount =
+                        callable && typeof callable === "function"
+                            ? Math.max(callable.length, 0)
+                            : 0;
                     const policyResult = this.evaluateDiscordJsInvocationPolicy({
                         symbol: resolvedSymbol,
                         behaviorClass,
@@ -520,6 +524,8 @@ export class DiscordService {
                                 resolvedTarget: resolvedTargetSummary,
                                 contextRequirements,
                                 argCount: resolvedArgs.length,
+                                providedArgCount: resolvedArgs.length,
+                                requiredArgCount,
                                 wouldInvoke:
                                     invoke &&
                                     canInvoke &&

@@ -31,6 +31,11 @@ This repository now uses the **Discord runtime vNext protocol**:
   - `discord.meta.preflight`
   - `discord.exec.invoke`
   - `discord.exec.batch`
+  - legacy dynamic forms are still accepted and translated:
+    - `discordjs.meta.symbols`
+    - `discordpkg.meta.symbols`
+    - `discordjs.<kind>.<symbol>`
+    - `discordpkg.<packageAlias>.<kind>.<symbol>`
 - `params` or `args`
 
 Runtime symbol coverage:
@@ -214,7 +219,9 @@ The MCP JSON-RPC contract on `POST /` is unchanged (`initialize`, `tools/list`, 
     "context": {
       "channelId": "123456789012345678"
     },
-    "policyMode": "strict"
+    "policyMode": "strict",
+    "strictContextCheck": true,
+    "strictArgCheck": false
   }
 }
 ```
@@ -237,6 +244,7 @@ The MCP JSON-RPC contract on `POST /` is unchanged (`initialize`, `tools/list`, 
       "channelId": "123456789012345678"
     },
     "dryRun": false,
+    "requirePreflightPass": true,
     "allowWrite": true
   }
 }
@@ -252,6 +260,8 @@ The MCP JSON-RPC contract on `POST /` is unchanged (`initialize`, `tools/list`, 
   "operation": "discord.exec.batch",
   "params": {
     "mode": "best_effort",
+    "haltOnPolicyBlock": false,
+    "maxParallelism": 4,
     "dryRun": true,
     "items": [
       {
@@ -268,6 +278,24 @@ The MCP JSON-RPC contract on `POST /` is unchanged (`initialize`, `tools/list`, 
   }
 }
 ```
+
+## Legacy Dynamic Compatibility
+
+Legacy operation strings are translated to the vNext protocol without expanding the MCP tool surface.
+
+- `discordjs.meta.symbols` -> `discord.meta.symbols` with `packageAlias=discordjs`
+- `discordpkg.meta.symbols` -> `discord.meta.symbols`
+- `discordjs.<kind>.<symbol>` -> `discord.exec.invoke`
+- `discordpkg.<packageAlias>.<kind>.<symbol>` -> `discord.exec.invoke`
+
+Kind tokens are normalized for compatibility:
+- `classes` -> `class`
+- `functions` -> `function`
+- `enums` -> `enum`
+- `interfaces` -> `interface`
+- `types` -> `type`
+- `variables` -> `variable`
+- `constants` / `consts` -> `const`
 
 ## Notes on Operation Counts
 
