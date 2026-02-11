@@ -18,6 +18,7 @@ import {
     listLoadedDiscordRuntimePackages,
     type DiscordJsSymbol,
 } from "./gateway/discordjs-symbol-catalog.js";
+import { LegacyRewriteStore } from "./gateway/legacy-rewrite-store.js";
 import { createHttpApp } from "./http-app.js";
 import {
     DISCORD_EXEC_BATCH_OPERATION,
@@ -73,6 +74,7 @@ let discordController: DiscordController;
 let oauthManager: OAuthManager | null = null;
 const identityStore = new LocalEncryptedIdentityStore();
 const identityWorkerPool = new IdentityWorkerPool();
+const legacyRewriteStore = new LegacyRewriteStore();
 const logger = Logger.getInstance().child("server");
 
 type RiskTier = "low" | "medium" | "high";
@@ -86,6 +88,11 @@ type ParsedDiscordManageCall = {
     riskTier: RiskTier;
     compatTranslated: boolean;
     translatedFromOperation?: string;
+    legacyOperation?: string;
+    legacyAutoRewriteApplied: boolean;
+    legacyRewriteCount?: number;
+    legacyMigrationSuggestedOperation?: DiscordOperation;
+    legacyMigrationSuggestedParams?: Record<string, unknown>;
 };
 
 type GenericSchema = {
@@ -111,6 +118,43 @@ type PreflightEvaluation = {
     blockingReasons: string[];
     preflightToken: string;
 };
+
+type LegacyMigrationErrorPayload = {
+    error: {
+        code: "LEGACY_OPERATION_REMOVED";
+        message: string;
+        legacyOperation: string;
+        rewriteCount: number;
+        suggested: {
+            operation: DiscordOperation;
+            params: Record<string, unknown>;
+        };
+        docsRef: string;
+    };
+};
+
+type LegacyMigrationAuditContext = {
+    identityId: string;
+    mode: IdentityMode;
+    method: DomainMethod;
+    operation: DiscordOperation;
+    riskTier: RiskTier;
+};
+
+class LegacyMigrationError extends Error {
+    readonly payload: LegacyMigrationErrorPayload;
+    readonly auditContext: LegacyMigrationAuditContext;
+
+    constructor(
+        payload: LegacyMigrationErrorPayload,
+        auditContext: LegacyMigrationAuditContext,
+    ) {
+        super(payload.error.message);
+        this.name = "LegacyMigrationError";
+        this.payload = payload;
+        this.auditContext = auditContext;
+    }
+}
 
 const OPERATION_SCHEMA_BY_NAME: Record<string, GenericSchema> = {
     [DISCORD_META_PACKAGES_OPERATION]:
@@ -370,6 +414,25 @@ function translateLegacyOperation(
     return null;
 }
 
+function buildLegacySuggestedParams(
+    translation: LegacyTranslation,
+    rawPayload: unknown,
+): Record<string, unknown> {
+    const operation = resolveOperation(translation.operationCandidate);
+    let baseParams: Record<string, unknown>;
+
+    if (translation.treatArrayAsInvokeArgs) {
+        baseParams = coerceLegacyPayload(rawPayload);
+    } else {
+        baseParams = coerceOperationArgs(rawPayload, operation);
+    }
+
+    return normalizeParamsBySchemaOrder(operation, {
+        ...baseParams,
+        ...translation.injectedParams,
+    });
+}
+
 function inferRiskTier(
     operation: DiscordOperation,
     params: Record<string, unknown>,
@@ -499,17 +562,76 @@ function parseDiscordManageCall(
     }
 
     let baseParams: Record<string, unknown>;
-    if (translation?.treatArrayAsInvokeArgs) {
-        baseParams = coerceLegacyPayload(rawPayload);
-    } else {
-        baseParams = coerceOperationArgs(rawPayload, operation);
-    }
+    let compatTranslated = false;
+    let legacyOperation: string | undefined;
+    let legacyAutoRewriteApplied = false;
+    let legacyRewriteCount: number | undefined;
+    let legacyMigrationSuggestedOperation: DiscordOperation | undefined;
+    let legacyMigrationSuggestedParams: Record<string, unknown> | undefined;
+    let translatedFromOperation: string | undefined;
 
     if (translation) {
-        baseParams = {
-            ...baseParams,
-            ...translation.injectedParams,
-        };
+        legacyOperation = translation.translatedFromOperation;
+        translatedFromOperation = translation.translatedFromOperation;
+        legacyMigrationSuggestedOperation = operation;
+        try {
+            legacyMigrationSuggestedParams = buildLegacySuggestedParams(
+                translation,
+                rawPayload,
+            );
+        } catch {
+            legacyMigrationSuggestedParams = {
+                ...translation.injectedParams,
+                ...(Array.isArray(rawPayload) ? { args: rawPayload } : {}),
+            };
+        }
+
+        let registration;
+        try {
+            registration = legacyRewriteStore.registerUse({
+                mode,
+                identityId,
+                legacyOperation,
+                suggestedOperation: operation,
+            });
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : String(error);
+            throw new Error(
+                `Legacy operation '${legacyOperation}' cannot be evaluated because rewrite state is unavailable. Migrate to '${operation}'. Details: ${message}`,
+            );
+        }
+
+        legacyRewriteCount = registration.record.rewriteCount;
+        if (!registration.allowRewrite) {
+            const payload: LegacyMigrationErrorPayload = {
+                error: {
+                    code: "LEGACY_OPERATION_REMOVED",
+                    message: `Legacy operation '${legacyOperation}' has been removed after one auto-rewrite. Use '${operation}' directly.`,
+                    legacyOperation,
+                    rewriteCount: registration.record.rewriteCount,
+                    suggested: {
+                        operation,
+                        params: legacyMigrationSuggestedParams,
+                    },
+                    docsRef: "README.md#legacy-dynamic-compatibility",
+                },
+            };
+
+            throw new LegacyMigrationError(payload, {
+                identityId,
+                mode,
+                method,
+                operation,
+                riskTier: inferRiskTier(operation, legacyMigrationSuggestedParams),
+            });
+        }
+
+        baseParams = legacyMigrationSuggestedParams;
+        compatTranslated = true;
+        legacyAutoRewriteApplied = true;
+    } else {
+        baseParams = coerceOperationArgs(rawPayload, operation);
     }
 
     const normalizedParams = normalizeParamsBySchemaOrder(operation, baseParams);
@@ -526,8 +648,13 @@ function parseDiscordManageCall(
         operation,
         params: parsedParams,
         riskTier,
-        compatTranslated: Boolean(translation),
-        translatedFromOperation: translation?.translatedFromOperation,
+        compatTranslated,
+        translatedFromOperation,
+        legacyOperation,
+        legacyAutoRewriteApplied,
+        legacyRewriteCount,
+        legacyMigrationSuggestedOperation,
+        legacyMigrationSuggestedParams,
     };
 }
 
@@ -886,7 +1013,7 @@ function getAllTools() {
         {
             name: "discord_manage",
             description:
-                "Discord runtime control surface. vNext operations: discord.meta.packages, discord.meta.symbols, discord.meta.preflight, discord.exec.invoke, discord.exec.batch. Legacy discordjs/discordpkg dynamic operations are translated for compatibility.",
+                "Discord runtime control surface. vNext operations: discord.meta.packages, discord.meta.symbols, discord.meta.preflight, discord.exec.invoke, discord.exec.batch.",
             inputSchema: {
                 type: "object",
                 properties: {
@@ -910,7 +1037,7 @@ function getAllTools() {
                     operation: {
                         type: "string",
                         description:
-                            "vNext operations: discord.meta.packages, discord.meta.symbols, discord.meta.preflight, discord.exec.invoke, discord.exec.batch. Legacy translations are also accepted.",
+                            "vNext operations: discord.meta.packages, discord.meta.symbols, discord.meta.preflight, discord.exec.invoke, discord.exec.batch.",
                     },
                     params: {
                         type: "object",
@@ -1316,11 +1443,18 @@ async function executeDiscordManageOperation(
         );
 
         const parsedResult = parseJsonMaybe(rawResult);
-        if (parsedCall.compatTranslated) {
+        if (parsedCall.legacyAutoRewriteApplied) {
             return buildResponseWithMetadata(parsedResult, {
-                compatTranslated: true,
-                translatedFromOperation: parsedCall.translatedFromOperation,
-                translatedToOperation: parsedCall.operation,
+                migration: {
+                    autoRewritten: true,
+                    nextCallWillFail: true,
+                    legacyOperation: parsedCall.legacyOperation,
+                    rewriteCount: parsedCall.legacyRewriteCount,
+                    suggested: {
+                        operation: parsedCall.operation,
+                        params: parsedCall.legacyMigrationSuggestedParams || {},
+                    },
+                },
             });
         }
 
@@ -1339,6 +1473,13 @@ async function executeDiscordManageOperation(
                 "discord.risk_tier": parsedCall.riskTier,
                 "discord.status": status,
                 "discord.compat_translated": String(parsedCall.compatTranslated),
+                "discord.legacy_operation_used": String(
+                    Boolean(parsedCall.legacyOperation),
+                ),
+                "discord.legacy_auto_rewrite": String(
+                    parsedCall.legacyAutoRewriteApplied,
+                ),
+                "discord.legacy_rewrite_blocked": "false",
                 ...(preflightCanExecute !== undefined
                     ? {
                           "discord.preflight.can_execute": String(
@@ -1358,6 +1499,60 @@ async function executeDiscordManageOperation(
             });
         }
     }
+}
+
+function isLegacyMigrationError(error: unknown): error is LegacyMigrationError {
+    return (
+        error instanceof LegacyMigrationError ||
+        (error instanceof Error && error.name === "LegacyMigrationError")
+    );
+}
+
+function serializeLegacyMigrationPayload(error: LegacyMigrationError): string {
+    return JSON.stringify(error.payload, null, 2);
+}
+
+function recordLegacyMigrationBlocked(
+    error: LegacyMigrationError,
+    durationMs: number,
+    transport: "stdio" | "http",
+): void {
+    const operationType = isDiscordWriteOperation(error.auditContext.operation)
+        ? "execution"
+        : "metadata";
+
+    recordDiscordOperationMetric(
+        {
+            "discord.layer": "router",
+            "discord.mode": error.auditContext.mode,
+            "discord.method": error.auditContext.method,
+            "discord.operation": error.auditContext.operation,
+            "discord.operation_type": operationType,
+            "discord.risk_tier": error.auditContext.riskTier,
+            "discord.status": "error",
+            "discord.compat_translated": "false",
+            "discord.legacy_operation_used": "true",
+            "discord.legacy_auto_rewrite": "false",
+            "discord.legacy_rewrite_blocked": "true",
+            "mcp.transport": transport,
+        },
+        durationMs,
+    );
+
+    writeAuditEvent({
+        identityId: error.auditContext.identityId,
+        mode: error.auditContext.mode,
+        method: error.auditContext.method,
+        operation: error.auditContext.operation,
+        riskTier: error.auditContext.riskTier,
+        status: "error",
+        durationMs,
+        compatTranslated: false,
+        legacyOperation: error.payload.error.legacyOperation,
+        legacyRewriteCount: error.payload.error.rewriteCount,
+        migrationBlocked: true,
+        error: error.payload.error.message,
+    });
 }
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -1400,50 +1595,77 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                         : "unknown",
             },
             async () => {
-                const parsedCall = parseDiscordManageCall(
-                    request.params.name,
-                    request.params.arguments,
-                );
                 const operationStartedAt = Date.now();
-
+                let parsedCall: ParsedDiscordManageCall | undefined;
                 try {
+                    parsedCall = parseDiscordManageCall(
+                        request.params.name,
+                        request.params.arguments,
+                    );
+                    const currentCall = parsedCall;
                     const result = await identityWorkerPool.run(
-                        parsedCall.identityId,
+                        currentCall.identityId,
                         async () => {
                             await ensureIdentityForCall(
-                                parsedCall.mode,
-                                parsedCall.identityId,
+                                currentCall.mode,
+                                currentCall.identityId,
                             );
-                            return executeDiscordManageOperation(parsedCall);
+                            return executeDiscordManageOperation(currentCall);
                         },
                     );
 
                     writeAuditEvent({
-                        identityId: parsedCall.identityId,
-                        mode: parsedCall.mode,
-                        method: parsedCall.method,
-                        operation: parsedCall.operation,
-                        riskTier: parsedCall.riskTier,
+                        identityId: currentCall.identityId,
+                        mode: currentCall.mode,
+                        method: currentCall.method,
+                        operation: currentCall.operation,
+                        riskTier: currentCall.riskTier,
                         status: "success",
                         durationMs: Date.now() - operationStartedAt,
-                        compatTranslated: parsedCall.compatTranslated,
+                        compatTranslated: currentCall.compatTranslated,
+                        legacyOperation: currentCall.legacyOperation,
+                        legacyRewriteCount: currentCall.legacyRewriteCount,
+                        migrationBlocked: false,
                     });
 
                     return {
                         content: [{ type: "text", text: result }],
                     };
                 } catch (error) {
-                    writeAuditEvent({
-                        identityId: parsedCall.identityId,
-                        mode: parsedCall.mode,
-                        method: parsedCall.method,
-                        operation: parsedCall.operation,
-                        riskTier: parsedCall.riskTier,
-                        status: "error",
-                        durationMs: Date.now() - operationStartedAt,
-                        compatTranslated: parsedCall.compatTranslated,
-                        error: error instanceof Error ? error.message : String(error),
-                    });
+                    if (isLegacyMigrationError(error)) {
+                        status = "error";
+                        const durationMs = Date.now() - operationStartedAt;
+                        recordLegacyMigrationBlocked(error, durationMs, "stdio");
+                        return {
+                            content: [
+                                {
+                                    type: "text",
+                                    text: serializeLegacyMigrationPayload(error),
+                                },
+                            ],
+                            isError: true,
+                        };
+                    }
+
+                    if (parsedCall) {
+                        writeAuditEvent({
+                            identityId: parsedCall.identityId,
+                            mode: parsedCall.mode,
+                            method: parsedCall.method,
+                            operation: parsedCall.operation,
+                            riskTier: parsedCall.riskTier,
+                            status: "error",
+                            durationMs: Date.now() - operationStartedAt,
+                            compatTranslated: parsedCall.compatTranslated,
+                            legacyOperation: parsedCall.legacyOperation,
+                            legacyRewriteCount: parsedCall.legacyRewriteCount,
+                            migrationBlocked: false,
+                            error:
+                                error instanceof Error
+                                    ? error.message
+                                    : String(error),
+                        });
+                    }
                     throw error;
                 }
             },

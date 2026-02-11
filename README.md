@@ -31,11 +31,6 @@ This repository now uses the **Discord runtime vNext protocol**:
   - `discord.meta.preflight`
   - `discord.exec.invoke`
   - `discord.exec.batch`
-  - legacy dynamic forms are still accepted and translated:
-    - `discordjs.meta.symbols`
-    - `discordpkg.meta.symbols`
-    - `discordjs.<kind>.<symbol>`
-    - `discordpkg.<packageAlias>.<kind>.<symbol>`
 - `params` or `args`
 
 Runtime symbol coverage:
@@ -98,6 +93,9 @@ DISCORD_GUILD_ID=your_guild_id_here
 
 # Optional audit log file
 # DISCORD_MCP_AUDIT_LOG_PATH=./data/discord-mcp-audit.log
+
+# Optional legacy rewrite state file (one-time legacy auto-rewrite tracking)
+# DISCORD_MCP_LEGACY_REWRITE_STATE_PATH=./data/legacy-rewrite-state.json
 
 # Optional logging
 # LOG_LEVEL=INFO
@@ -281,14 +279,19 @@ The MCP JSON-RPC contract on `POST /` is unchanged (`initialize`, `tools/list`, 
 
 ## Legacy Dynamic Compatibility
 
-Legacy operation strings are translated to the vNext protocol without expanding the MCP tool surface.
+Legacy operation strings now follow a strict migration policy:
 
+1. First call auto-rewrites to vNext and executes.
+2. Next call with the same legacy operation (per `mode + identityId + operation`) is blocked.
+3. Blocked calls return a structured `LEGACY_OPERATION_REMOVED` payload with the exact vNext replacement.
+
+Supported legacy formats for one-time rewrite:
 - `discordjs.meta.symbols` -> `discord.meta.symbols` with `packageAlias=discordjs`
 - `discordpkg.meta.symbols` -> `discord.meta.symbols`
 - `discordjs.<kind>.<symbol>` -> `discord.exec.invoke`
 - `discordpkg.<packageAlias>.<kind>.<symbol>` -> `discord.exec.invoke`
 
-Kind tokens are normalized for compatibility:
+Normalized kind aliases:
 - `classes` -> `class`
 - `functions` -> `function`
 - `enums` -> `enum`

@@ -16,6 +16,9 @@ export type AuditEvent = {
     preflightCanExecute?: boolean;
     blockingReasonCount?: number;
     batchMode?: "best_effort" | "all_or_none";
+    legacyOperation?: string;
+    legacyRewriteCount?: number;
+    migrationBlocked?: boolean;
     error?: string;
 };
 
@@ -69,6 +72,21 @@ export function writeAuditEvent(event: AuditEvent): void {
         ...(event.batchMode
             ? {
                   "discord.batch_mode": event.batchMode,
+              }
+            : {}),
+        ...(event.legacyOperation
+            ? {
+                  "discord.legacy_operation": event.legacyOperation,
+              }
+            : {}),
+        ...(event.legacyRewriteCount !== undefined
+            ? {
+                  "discord.legacy_rewrite_count": event.legacyRewriteCount,
+              }
+            : {}),
+        ...(event.migrationBlocked !== undefined
+            ? {
+                  "discord.migration_blocked": String(event.migrationBlocked),
               }
             : {}),
     });

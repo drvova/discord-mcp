@@ -15,7 +15,11 @@ import type {
     DomainMethod,
 } from "./gateway/domain-registry.js";
 import type { IdentityMode } from "./identity/local-encrypted-identity-store.js";
-import { recordRequestMetric, withSpan } from "./observability/telemetry.js";
+import {
+    recordDiscordOperationMetric,
+    recordRequestMetric,
+    withSpan,
+} from "./observability/telemetry.js";
 
 const JsonRpcHttpMessageSchema = z.object({
     id: z.unknown().optional(),
@@ -91,7 +95,63 @@ export type ParsedDiscordManageCallLike = {
     riskTier: AuditRiskTier;
     compatTranslated: boolean;
     translatedFromOperation?: string;
+    legacyOperation?: string;
+    legacyAutoRewriteApplied: boolean;
+    legacyRewriteCount?: number;
+    legacyMigrationSuggestedOperation?: DiscordOperation;
+    legacyMigrationSuggestedParams?: Record<string, unknown>;
 };
+
+type LegacyMigrationErrorLike = {
+    payload: {
+        error: {
+            code: "LEGACY_OPERATION_REMOVED";
+            message: string;
+            legacyOperation: string;
+            rewriteCount: number;
+            suggested: {
+                operation: DiscordOperation;
+                params: Record<string, unknown>;
+            };
+            docsRef: string;
+        };
+    };
+    auditContext: {
+        identityId: string;
+        mode: IdentityMode;
+        method: DomainMethod;
+        operation: DiscordOperation;
+        riskTier: AuditRiskTier;
+    };
+};
+
+function asLegacyMigrationError(error: unknown): LegacyMigrationErrorLike | null {
+    if (!error || typeof error !== "object") {
+        return null;
+    }
+
+    const candidate = error as Partial<LegacyMigrationErrorLike>;
+    if (
+        !candidate.payload ||
+        !candidate.auditContext ||
+        typeof candidate.payload !== "object" ||
+        typeof candidate.auditContext !== "object"
+    ) {
+        return null;
+    }
+
+    const payloadError = (candidate.payload as { error?: unknown }).error;
+    if (!payloadError || typeof payloadError !== "object") {
+        return null;
+    }
+
+    const errorRecord = payloadError as Record<string, unknown>;
+    if (errorRecord.code !== "LEGACY_OPERATION_REMOVED") {
+        return null;
+    }
+
+    return candidate as LegacyMigrationErrorLike;
+}
 
 type IdentityWorkerPoolLike = {
     run<T>(
@@ -231,36 +291,117 @@ export function createHttpApp(deps: HttpAppDependencies) {
 
         if (message.method === "tools/call") {
             try {
-                const parsedCall = parseDiscordManageCall(
-                    message.params?.name,
-                    message.params?.arguments,
-                );
                 const startedAt = Date.now();
-                let result: string;
+                let parsedCall: ParsedDiscordManageCallLike | undefined;
 
                 try {
+                    parsedCall = parseDiscordManageCall(
+                        message.params?.name,
+                        message.params?.arguments,
+                    );
+                    const currentCall = parsedCall;
+                    let result: string;
+
                     result = await identityWorkerPool.run(
-                        parsedCall.identityId,
+                        currentCall.identityId,
                         async () => {
                             await ensureIdentityForCall(
-                                parsedCall.mode,
-                                parsedCall.identityId,
+                                currentCall.mode,
+                                currentCall.identityId,
                             );
-                            return executeDiscordManageOperation(parsedCall);
+                            return executeDiscordManageOperation(currentCall);
                         },
                     );
 
                     writeAuditEvent({
-                        identityId: parsedCall.identityId,
-                        mode: parsedCall.mode,
-                        method: parsedCall.method,
-                        operation: parsedCall.operation,
-                        riskTier: parsedCall.riskTier,
+                        identityId: currentCall.identityId,
+                        mode: currentCall.mode,
+                        method: currentCall.method,
+                        operation: currentCall.operation,
+                        riskTier: currentCall.riskTier,
                         status: "success",
                         durationMs: Date.now() - startedAt,
-                        compatTranslated: parsedCall.compatTranslated,
+                        compatTranslated: currentCall.compatTranslated,
+                        legacyOperation: currentCall.legacyOperation,
+                        legacyRewriteCount: currentCall.legacyRewriteCount,
+                        migrationBlocked: false,
                     });
+                    return c.json(
+                        {
+                            jsonrpc: "2.0",
+                            id: message.id,
+                            result: {
+                                content: [
+                                    {
+                                        type: "text",
+                                        text: result,
+                                    },
+                                ],
+                            },
+                        },
+                        200,
+                    );
                 } catch (error) {
+                    const legacyError = asLegacyMigrationError(error);
+                    if (legacyError) {
+                        const operationType = legacyError.auditContext.operation
+                            .toLowerCase()
+                            .startsWith("discord.exec.")
+                            ? "execution"
+                            : "metadata";
+                        recordDiscordOperationMetric(
+                            {
+                                "discord.layer": "router",
+                                "discord.mode": legacyError.auditContext.mode,
+                                "discord.method": legacyError.auditContext.method,
+                                "discord.operation":
+                                    legacyError.auditContext.operation,
+                                "discord.operation_type": operationType,
+                                "discord.risk_tier":
+                                    legacyError.auditContext.riskTier,
+                                "discord.status": "error",
+                                "discord.compat_translated": "false",
+                                "discord.legacy_operation_used": "true",
+                                "discord.legacy_auto_rewrite": "false",
+                                "discord.legacy_rewrite_blocked": "true",
+                                "mcp.transport": "http",
+                            },
+                            Date.now() - startedAt,
+                        );
+                        writeAuditEvent({
+                            identityId: legacyError.auditContext.identityId,
+                            mode: legacyError.auditContext.mode,
+                            method: legacyError.auditContext.method,
+                            operation: legacyError.auditContext.operation,
+                            riskTier: legacyError.auditContext.riskTier,
+                            status: "error",
+                            durationMs: Date.now() - startedAt,
+                            compatTranslated: false,
+                            legacyOperation:
+                                legacyError.payload.error.legacyOperation,
+                            legacyRewriteCount:
+                                legacyError.payload.error.rewriteCount,
+                            migrationBlocked: true,
+                            error: legacyError.payload.error.message,
+                        });
+                        return c.json(
+                            {
+                                jsonrpc: "2.0",
+                                id: message.id,
+                                error: {
+                                    code: -32000,
+                                    message: legacyError.payload.error.code,
+                                    data: legacyError.payload,
+                                },
+                            },
+                            200,
+                        );
+                    }
+
+                    if (!parsedCall) {
+                        throw error;
+                    }
+
                     writeAuditEvent({
                         identityId: parsedCall.identityId,
                         mode: parsedCall.mode,
@@ -270,6 +411,9 @@ export function createHttpApp(deps: HttpAppDependencies) {
                         status: "error",
                         durationMs: Date.now() - startedAt,
                         compatTranslated: parsedCall.compatTranslated,
+                        legacyOperation: parsedCall.legacyOperation,
+                        legacyRewriteCount: parsedCall.legacyRewriteCount,
+                        migrationBlocked: false,
                         error:
                             error instanceof Error
                                 ? error.message
@@ -277,22 +421,6 @@ export function createHttpApp(deps: HttpAppDependencies) {
                     });
                     throw error;
                 }
-
-                return c.json(
-                    {
-                        jsonrpc: "2.0",
-                        id: message.id,
-                        result: {
-                            content: [
-                                {
-                                    type: "text",
-                                    text: result,
-                                },
-                            ],
-                        },
-                    },
-                    200,
-                );
             } catch (error) {
                 return c.json(
                     {
