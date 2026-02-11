@@ -10,7 +10,6 @@ This repository now uses the **dynamic Discord.js routing architecture**:
 
 - **MCP tool**: `discord_manage`
 - **HTTP runtime**: Hono (`@hono/node-server`)
-- **Web UI**: Svelte app served by the same Hono process under `/app`
 - **Discovery operation**:
   - `discordjs.meta.symbols` (method: `automation.read`)
 - **Invocation operation format**:
@@ -58,8 +57,6 @@ Runtime kind behavior:
 git clone https://github.com/drvova/discord-mcp.git
 cd discord-mcp
 npm install
-npm --prefix web install
-npm run ui:build
 npm run build
 ```
 
@@ -74,9 +71,6 @@ npm run dev
 
 # HTTP/SSE mode
 npm run web
-
-# Full web stack (build Svelte + backend, then run HTTP mode)
-npm run web:full
 ```
 
 ## Configuration
@@ -104,35 +98,6 @@ DISCORD_GUILD_ID=your_guild_id_here
 # DISCORD_CLIENT_ID=...
 # DISCORD_CLIENT_SECRET=...
 # DISCORD_OAUTH_REDIRECT_URI=http://localhost:1455/oauth/discord/callback
-
-# Optional web UI + OIDC bridge
-# DISCORD_WEB_UI_MOUNT_PATH=/app
-# DISCORD_WEB_UI_DIST_PATH=./web/build
-# DISCORD_WEB_UI_STORE_PATH=./data/web-ui-state.json
-# DISCORD_WEB_UI_SESSION_COOKIE_NAME=discord_mcp_web_session
-# DISCORD_WEB_UI_SESSION_TTL_SECONDS=604800
-# DISCORD_WEB_ALLOW_DEV_AUTH=true
-# Defaults (Codex/OpenAI) are used when omitted:
-# issuer=https://auth.openai.com
-# authorization_endpoint=https://auth.openai.com/oauth/authorize
-# token_endpoint=https://auth.openai.com/oauth/token
-# client_id=app_EMoamEEZ73f0CkXaXp7hrann
-# redirect_uri=http://localhost:1455/auth/callback
-# scopes=openid profile email offline_access
-# DISCORD_WEB_OIDC_ISSUER=https://issuer.example.com
-# DISCORD_WEB_OIDC_CLIENT_ID=...
-# DISCORD_WEB_OIDC_CLIENT_SECRET=...
-# DISCORD_WEB_OIDC_REDIRECT_URI=http://localhost:1455/auth/callback
-# DISCORD_WEB_OIDC_SCOPES=openid profile email offline_access
-# DISCORD_WEB_OIDC_PKCE_REQUIRED=true
-# DISCORD_WEB_OIDC_ID_TOKEN_ADD_ORGANIZATIONS=true
-# DISCORD_WEB_OIDC_CODEX_SIMPLIFIED_FLOW=true
-# DISCORD_WEB_OIDC_ORIGINATOR=codex_cli_rs
-# DISCORD_WEB_OIDC_ALLOWED_WORKSPACE_ID=ws_...
-# DISCORD_WEB_OIDC_REQUESTED_TOKEN=openai-api-key
-# DISCORD_WEB_PLANNER_API_KEY=...
-# DISCORD_WEB_PLANNER_BASE_URL=https://api.openai.com/v1
-# DISCORD_WEB_PLANNER_MODEL=gpt-4o-mini
 ```
 
 ## HTTP Endpoints
@@ -144,40 +109,6 @@ When `MCP_HTTP_PORT` (or `PORT`) is set:
 - `GET /health`
 - `GET /oauth/discord/start`
 - `GET /oauth/discord/callback`
-- `GET /auth/codex/start` (primary Codex-style login entrypoint)
-- `GET /auth/codex/callback` (callback alias)
-- `GET /auth/oidc/start` (alias)
-- `GET /auth/oidc/callback` (alias)
-- `GET /auth/callback` (Codex-compatible primary callback)
-- `POST /auth/api-key/login` (create web session directly from API key)
-- `GET /api/session`
-- `POST /api/session/logout`
-- `POST /api/session/identity`
-- `GET /api/chat/threads`
-- `POST /api/chat/threads`
-- `GET /api/chat/threads/:threadId/messages`
-- `POST /api/chat/plan`
-- `POST /api/chat/execute`
-- `GET /app/` (SvelteKit web UI when `web/build` exists)
-
-## Web UI Runtime (Single Server)
-
-Use one command to build UI + backend and run Hono on `:1455`:
-
-```bash
-npm run web:dev
-```
-
-This flow:
-
-- Builds the SvelteKit app into `web/build`
-- Compiles backend TypeScript
-- Runs a single Hono server on `http://localhost:1455`
-- Serves UI directly at `http://localhost:1455/app/` (no Vite proxy required)
-
-Missing Discord OAuth callback env vars (`DISCORD_CLIENT_SECRET`,
-`DISCORD_OAUTH_REDIRECT_URI`) no longer block HTTP startup; only the
-`/oauth/discord/*` callback exchange remains unavailable until configured.
 
 ## Typed HTTP Client (`hc`)
 
@@ -200,19 +131,6 @@ const rpc = await rpcResponse.json();
 ```
 
 The MCP JSON-RPC contract on `POST /` is unchanged (`initialize`, `tools/list`, `tools/call`).
-
-## Web UI Flow
-
-- The UI is served by Hono at `/app/`.
-- Login starts at `/auth/codex/start` and returns via `/auth/callback` by default (`/auth/codex/callback` and `/auth/oidc/callback` are aliases).
-- If OAuth token exchange cannot mint `openai-api-key`, you can sign in directly from the web UI with an API key (`POST /auth/api-key/login`) without setting extra environment variables.
-- Codex login sends Codex-compatible auth parameters by default, including `originator=codex_cli_rs`, and accepts optional workspace pinning via `/auth/codex/start?workspaceId=ws_...` (`allowed_workspace_id`).
-- When OIDC is not configured and `DISCORD_WEB_ALLOW_DEV_AUTH=true` (default outside production), `/auth/codex/start` creates a local dev session automatically.
-- After Codex OAuth callback, token exchange (`requested_token=openai-api-key`) must succeed before a web session is created.
-- If token exchange fails (for example `missing organization_id`), login is rejected and the UI shows an actionable auth error.
-- Session state is cookie-based and persisted in `DISCORD_WEB_UI_STORE_PATH`.
-- Chat planning uses dynamic operation generation and defaults write operations to `dryRun: true`.
-- Live writes require explicit confirmation in the UI (`confirmWrites: true`).
 
 ## Usage Examples
 
@@ -296,6 +214,3 @@ If you expect thousands of operations in the MCP registry, this is by design:
 - `npm run dev` - build once, then run `tsc -w` + `node --watch`
 - `npm start` - run compiled stdio server
 - `npm run web` - run compiled Hono HTTP/SSE server on port 1455
-- `npm run web:build` - build then run HTTP/SSE
-- `npm run ui:build` - build SvelteKit web UI into `web/build`
-- `npm run web:full` - build UI + backend and run HTTP server

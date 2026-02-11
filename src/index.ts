@@ -13,7 +13,6 @@ import { OAuthManager } from "./core/OAuthManager.js";
 import { writeAuditEvent } from "./gateway/audit-log.js";
 import { getDiscordJsSymbolsCatalog } from "./gateway/discordjs-symbol-catalog.js";
 import { createHttpApp } from "./http-app.js";
-import { WebUiRuntime } from "./web/runtime.js";
 import {
     DISCORDJS_DISCOVERY_OPERATION,
     DYNAMIC_DISCORDJS_OPERATION_PREFIX,
@@ -72,17 +71,6 @@ function parseBooleanQuery(value: string | null): boolean | undefined {
         return false;
     }
     return undefined;
-}
-
-function parsePositiveInt(
-    value: string | undefined,
-    fallback: number,
-): number {
-    const parsed = Number.parseInt(value || "", 10);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-        return fallback;
-    }
-    return parsed;
 }
 
 // Initialize Discord service
@@ -663,7 +651,7 @@ async function main() {
                     `OAuth callback flow is partially configured. Missing: ${missingOAuthConfig.join(", ")}`,
                 );
                 console.error(
-                    "Server startup will continue so web UI auth and API routes remain available.",
+                    "Server startup will continue so HTTP routes remain available.",
                 );
             }
         } else {
@@ -674,146 +662,6 @@ async function main() {
 
         if (useHttp) {
             const httpPort = Number.parseInt(useHttp, 10) || 3000;
-            const codexDefaultIssuer = "https://auth.openai.com";
-            const codexDefaultClientId = "app_EMoamEEZ73f0CkXaXp7hrann";
-            const webUiMountPath = process.env.DISCORD_WEB_UI_MOUNT_PATH || "/app";
-            const webUiDistPath = process.env.DISCORD_WEB_UI_DIST_PATH || "./web/build";
-            const webUiStorePath =
-                process.env.DISCORD_WEB_UI_STORE_PATH || "./data/web-ui-state.json";
-            const webUiSessionCookieName =
-                process.env.DISCORD_WEB_UI_SESSION_COOKIE_NAME ||
-                "discord_mcp_web_session";
-            const webUiSessionCookieTtlSeconds = parsePositiveInt(
-                process.env.DISCORD_WEB_UI_SESSION_TTL_SECONDS,
-                60 * 60 * 24 * 7,
-            );
-            const oidcStateTtlSeconds = parsePositiveInt(
-                process.env.DISCORD_WEB_OIDC_STATE_TTL_SECONDS,
-                600,
-            );
-            const plannerMaxActions = parsePositiveInt(
-                process.env.DISCORD_WEB_PLANNER_MAX_ACTIONS,
-                3,
-            );
-            const oidcScopes = (
-                process.env.DISCORD_WEB_OIDC_SCOPES ||
-                "openid profile email offline_access"
-            )
-                .split(/\s+/)
-                .map((scope) => scope.trim())
-                .filter((scope) => scope.length > 0);
-            const oidcExtraAuthorizationParams: Record<string, string> = {
-                id_token_add_organizations:
-                    process.env.DISCORD_WEB_OIDC_ID_TOKEN_ADD_ORGANIZATIONS || "true",
-                codex_cli_simplified_flow:
-                    process.env.DISCORD_WEB_OIDC_CODEX_SIMPLIFIED_FLOW || "true",
-                originator:
-                    process.env.DISCORD_WEB_OIDC_ORIGINATOR || "codex_cli_rs",
-            };
-            const oidcAllowedWorkspaceId = (
-                process.env.DISCORD_WEB_OIDC_ALLOWED_WORKSPACE_ID || ""
-            ).trim();
-            if (oidcAllowedWorkspaceId.length > 0) {
-                oidcExtraAuthorizationParams.allowed_workspace_id =
-                    oidcAllowedWorkspaceId;
-            }
-            const allowLocalDevAuth =
-                process.env.DISCORD_WEB_ALLOW_DEV_AUTH !== undefined
-                    ? process.env.DISCORD_WEB_ALLOW_DEV_AUTH === "true"
-                    : process.env.NODE_ENV !== "production";
-
-            const webUiRuntime = new WebUiRuntime(
-                {
-                    storePath: webUiStorePath,
-                    sessionTtlSeconds: webUiSessionCookieTtlSeconds,
-                    oidcStateTtlSeconds,
-                    oidc: {
-                        issuer: process.env.DISCORD_WEB_OIDC_ISSUER || codexDefaultIssuer,
-                        authorizationEndpoint:
-                            process.env.DISCORD_WEB_OIDC_AUTHORIZATION_ENDPOINT ||
-                            `${codexDefaultIssuer}/oauth/authorize`,
-                        tokenEndpoint:
-                            process.env.DISCORD_WEB_OIDC_TOKEN_ENDPOINT ||
-                            `${codexDefaultIssuer}/oauth/token`,
-                        userinfoEndpoint:
-                            process.env.DISCORD_WEB_OIDC_USERINFO_ENDPOINT,
-                        clientId:
-                            process.env.DISCORD_WEB_OIDC_CLIENT_ID ||
-                            codexDefaultClientId,
-                        clientSecret: process.env.DISCORD_WEB_OIDC_CLIENT_SECRET,
-                        redirectUri:
-                            process.env.DISCORD_WEB_OIDC_REDIRECT_URI ||
-                            `http://localhost:${httpPort}/auth/callback`,
-                        scopes: oidcScopes,
-                        pkceRequired:
-                            process.env.DISCORD_WEB_OIDC_PKCE_REQUIRED !== "false",
-                        extraAuthorizationParams: oidcExtraAuthorizationParams,
-                        requestedToken:
-                            process.env.DISCORD_WEB_OIDC_REQUESTED_TOKEN ||
-                            "openai-api-key",
-                    },
-                    planner: {
-                        apiKey: process.env.DISCORD_WEB_PLANNER_API_KEY,
-                        baseUrl: process.env.DISCORD_WEB_PLANNER_BASE_URL,
-                        model:
-                            process.env.DISCORD_WEB_PLANNER_MODEL ||
-                            "gpt-4o-mini",
-                        maxActions: plannerMaxActions,
-                    },
-                    allowLocalDevAuth,
-                },
-                async (request) => {
-                    const parsedCall = parseDiscordManageCall("discord_manage", {
-                        mode: request.mode,
-                        identityId: request.identityId,
-                        method: request.method,
-                        operation: request.operation,
-                        params: request.params,
-                    });
-                    const startedAt = Date.now();
-
-                    try {
-                        const result = await identityWorkerPool.run(
-                            parsedCall.identityId,
-                            async () => {
-                                await ensureIdentityForCall(
-                                    parsedCall.mode,
-                                    parsedCall.identityId,
-                                );
-                                return executeDiscordManageOperation(parsedCall);
-                            },
-                        );
-
-                        writeAuditEvent({
-                            identityId: parsedCall.identityId,
-                            mode: parsedCall.mode,
-                            method: parsedCall.method,
-                            operation: parsedCall.operation,
-                            riskTier: parsedCall.riskTier,
-                            status: "success",
-                            durationMs: Date.now() - startedAt,
-                        });
-
-                        return { text: result };
-                    } catch (error) {
-                        writeAuditEvent({
-                            identityId: parsedCall.identityId,
-                            mode: parsedCall.mode,
-                            method: parsedCall.method,
-                            operation: parsedCall.operation,
-                            riskTier: parsedCall.riskTier,
-                            status: "error",
-                            durationMs: Date.now() - startedAt,
-                            error:
-                                error instanceof Error
-                                    ? error.message
-                                    : String(error),
-                        });
-                        throw error;
-                    }
-                },
-            );
-
             const port = httpPort;
             const app = createHttpApp({
                 port,
@@ -826,11 +674,6 @@ async function main() {
                 getOAuthManager,
                 parseBooleanQuery,
                 getAllTools,
-                webUiRuntime,
-                webUiSessionCookieName,
-                webUiSessionCookieTtlSeconds,
-                webUiMountPath,
-                webUiDistPath,
             });
             serve({ fetch: app.fetch, port });
 
@@ -845,28 +688,6 @@ async function main() {
             console.error(
                 `OAuth callback: http://localhost:${port}/oauth/discord/callback`,
             );
-            console.error(
-                `Web UI: http://localhost:${port}${webUiMountPath}/`,
-            );
-            console.error(
-                `Codex-style auth start: http://localhost:${port}/auth/codex/start`,
-            );
-            console.error(
-                `OIDC alias start: http://localhost:${port}/auth/oidc/start`,
-            );
-            console.error(
-                `Codex-compatible callback: http://localhost:${port}/auth/callback`,
-            );
-            if (!webUiRuntime.isOidcConfigured()) {
-                console.error(
-                    `OIDC config missing fields: ${webUiRuntime.getOidcMissingConfigFields().join(", ")}`,
-                );
-            }
-            if (webUiRuntime.isLocalDevAuthEnabled()) {
-                console.error(
-                    "Local dev auth fallback is enabled (DISCORD_WEB_ALLOW_DEV_AUTH).",
-                );
-            }
         } else {
             // Start stdio server (default)
             const transport = new StdioServerTransport();

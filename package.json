@@ -12,10 +12,6 @@
         "dev": "npm run build && concurrently \"tsc -w --preserveWatchOutput\" \"node --watch dist/src/index.js\"",
         "start": "node dist/src/index.js",
         "web": "MCP_HTTP_PORT=1455 node dist/src/index.js",
-        "web:build": "npm run build && MCP_HTTP_PORT=1455 node dist/src/index.js",
-        "web:dev": "npm run ui:build && npm run build && concurrently \"MCP_HTTP_PORT=1455 tsc -w --preserveWatchOutput\" \"MCP_HTTP_PORT=1455 node --watch dist/src/index.js\"",
-        "ui:build": "npm --prefix web run build",
-        "web:full": "npm run ui:build && npm run build && MCP_HTTP_PORT=1455 node dist/src/index.js",
         "prepare": "npm run build"
     },
     "repository": {
