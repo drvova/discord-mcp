@@ -1193,6 +1193,20 @@ export const GetDiscordjsSymbolsSchema = z.object({
         .boolean()
         .optional()
         .describe("Include aggregated per-kind counts for the filtered result set"),
+    package: z
+        .string()
+        .optional()
+        .describe("Filter by one runtime package alias or package name"),
+    packages: z
+        .array(z.string())
+        .optional()
+        .describe("Filter by multiple runtime package aliases or package names"),
+    includeAliases: z
+        .boolean()
+        .optional()
+        .describe(
+            "Include alias symbols generated from inherited methods (defaults to true)",
+        ),
 });
 
 export const InvokeDiscordjsSymbolContextSchema = z.object({
@@ -1211,6 +1225,12 @@ export const InvokeDiscordjsSymbolContextSchema = z.object({
 });
 
 export const InvokeDiscordjsSymbolSchema = z.object({
+    packageAlias: z
+        .string()
+        .optional()
+        .describe(
+            "Runtime package alias. Defaults to 'discordjs' for legacy discord.js operations.",
+        ),
     symbol: z
         .string()
         .min(1)

@@ -12,8 +12,10 @@ This repository now uses the **dynamic Discord.js routing architecture**:
 - **HTTP runtime**: Hono (`@hono/node-server`)
 - **Discovery operation**:
   - `discordjs.meta.symbols` (method: `automation.read`)
+  - `discordpkg.meta.symbols` (method: `automation.read`)
 - **Invocation operation format**:
   - `discordjs.<kind>.<symbol>` (method: `automation.write`)
+  - `discordpkg.<packageAlias>.<kind>.<symbol>` (method: `automation.write`)
   - Example: `discordjs.function.TextChannel%23send`
 
 ### Domain Method Contract
@@ -26,17 +28,20 @@ This repository now uses the **dynamic Discord.js routing architecture**:
   - `server.read`, `server.write`, `channels.read`, `channels.write`,
   - `messages.read`, `messages.write`, `members.read`, `members.write`,
   - `roles.read`, `roles.write`, `automation.read`, `automation.write`
-- `operation`: dynamic operation key (`discordjs.meta.symbols` or `discordjs.<kind>.<symbol>`)
+- `operation`: dynamic operation key (`discordjs.meta.symbols`, `discordpkg.meta.symbols`, `discordjs.<kind>.<symbol>`, or `discordpkg.<packageAlias>.<kind>.<symbol>`)
 - `params` or `args`
 
 - Discovery operation `discordjs.meta.symbols` is validated under `automation.read`.
+- Discovery operation `discordpkg.meta.symbols` is validated under `automation.read`.
 - Invocation operations `discordjs.<kind>.<symbol>` are validated under `automation.write`.
+- Invocation operations `discordpkg.<packageAlias>.<kind>.<symbol>` are validated under `automation.write`.
 
 Static operation keys (`get_discordjs_symbols`, `invoke_discordjs_symbol`) are removed and now return validation errors.
 
 Runtime kind behavior:
 - Dynamic `enum` symbols are discovered directly from Discord.js runtime exports.
-- `interface`, `type`, `namespace`, and `external` remain accepted for compatibility, but may return empty results in runtime-only discovery mode.
+- `class`, `function`, `enum`, `interface`, `type`, and `variable` are all discovered.
+- `interface`, `type`, `namespace`, and `variable` can be sourced from package declaration files (`.d.ts`) when not present in runtime exports.
 
 ## Branch Model
 
@@ -183,6 +188,24 @@ The MCP JSON-RPC contract on `POST /` is unchanged (`initialize`, `tools/list`, 
 }
 ```
 
+### 1b) Discover Symbols Across Runtime Packages
+
+```json
+{
+  "mode": "bot",
+  "identityId": "default-bot",
+  "method": "automation.read",
+  "operation": "discordpkg.meta.symbols",
+  "params": {
+    "packages": ["discordjs", "discordjs_voice"],
+    "kinds": ["class", "function", "enum", "interface", "type", "variable"],
+    "query": "Voice",
+    "includeAliases": true,
+    "includeKindCounts": true
+  }
+}
+```
+
 ### 2) Dynamic Invocation (`TextChannel#send`)
 
 ```json
@@ -200,6 +223,27 @@ The MCP JSON-RPC contract on `POST /` is unchanged (`initialize`, `tools/list`, 
     },
     "allowWrite": true,
     "policyMode": "strict"
+  }
+}
+```
+
+### 2b) Package Invocation (`@discordjs/voice`)
+
+```json
+{
+  "mode": "bot",
+  "identityId": "default-bot",
+  "method": "automation.write",
+  "operation": "discordpkg.discordjs_voice.function.joinVoiceChannel",
+  "params": {
+    "args": [
+      {
+        "channelId": "123456789012345678",
+        "guildId": "123456789012345678",
+        "adapterCreator": "$ref:guild.voiceAdapterCreator"
+      }
+    ],
+    "allowWrite": true
   }
 }
 ```
@@ -228,8 +272,11 @@ If you expect thousands of operations in the MCP registry, this is by design:
 
 - The MCP registry exposes a small, fixed operation surface.
 - Discovery is exposed through `discordjs.meta.symbols`.
+- Package discovery is exposed through `discordpkg.meta.symbols`.
 - Discord.js breadth is exposed through dynamic symbol routing (`discordjs.<kind>.<symbol>`).
+- Multi-package breadth is exposed through `discordpkg.<packageAlias>.<kind>.<symbol>`.
 - Runtime discovery includes `enum` exports (for example `ChannelType`, `ActivityType`).
+- Startup logs print loaded package aliases and versions.
 
 ## Security Guidance
 

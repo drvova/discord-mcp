@@ -20,7 +20,8 @@ import { DEFAULT_DISCORD_INTENTS } from "./core/ConfigManager.js";
 import { Logger } from "./core/Logger.js";
 import {
     classifyDiscordJsSymbolBehavior,
-    getDiscordJsSymbolsCatalog,
+    getDiscordPackageSymbolsCatalog,
+    getDiscordRuntimeExportsByAlias,
 } from "./gateway/discordjs-symbol-catalog.js";
 import {
     recordDiscordOperationMetric,
@@ -281,6 +282,7 @@ export class DiscordService {
     }
 
     async invokeDiscordJsSymbol(input: {
+        packageAlias?: string;
         symbol: string;
         kind?: DiscordJsInvocationKind;
         invoke?: boolean;
@@ -295,6 +297,8 @@ export class DiscordService {
         const startedAt = Date.now();
         let status: "success" | "error" = "success";
         const operationKind = input.kind || "auto";
+        const operationPackageAlias =
+            input.packageAlias?.trim().toLowerCase() || "discordjs";
 
         try {
             return await withSpan(
@@ -302,291 +306,316 @@ export class DiscordService {
                 {
                     "discord.symbol": input.symbol,
                     "discord.kind": operationKind,
+                    "discord.package_alias": operationPackageAlias,
                     "discord.target": input.target || "auto",
                 },
                 async () => {
+                    const packageAlias =
+                        input.packageAlias?.trim().toLowerCase() || "discordjs";
+                    if (!packageAlias) {
+                        throw new Error("Package alias cannot be empty.");
+                    }
+
                     const symbol = input.symbol.trim();
                     if (!symbol) {
                         throw new Error("Symbol cannot be empty.");
                     }
 
-                    const catalog = await getDiscordJsSymbolsCatalog({
+                    const catalog = await getDiscordPackageSymbolsCatalog({
+                        package: packageAlias,
                         query: symbol,
                         page: 1,
                         pageSize: 10000,
                     });
 
-        const matches = catalog.items.filter(
-            (item) =>
-                item.name === symbol &&
-                (input.kind ? item.kind === input.kind : true),
-        );
-
-        if (matches.length === 0) {
-            const suggestions = catalog.items
-                .slice(0, 10)
-                .map((item) => `${item.name}:${item.kind}`);
-            throw new Error(
-                `Symbol '${symbol}' was not found in discord.js catalog.${suggestions.length > 0 ? ` Suggestions: ${suggestions.join(", ")}` : ""}`,
-            );
-        }
-
-        const kind = this.pickSymbolKind(
-            matches.map((item) => item.kind as DiscordJsInvocationKind),
-            input.kind,
-        );
-        const symbolMeta = matches.find((item) => item.kind === kind) || matches[0];
-        const requestedSymbol = symbol;
-        const resolvedSymbol = symbolMeta.aliasOf || symbolMeta.name;
-        const invoke = input.invoke ?? true;
-        const dryRun = input.dryRun ?? false;
-        const allowWrite = input.allowWrite ?? false;
-        const policyMode = input.policyMode ?? "strict";
-        const rawArgs = input.args || [];
-        const behaviorClass =
-            (symbolMeta.behaviorClass as DiscordJsBehaviorClass | undefined) ||
-            classifyDiscordJsSymbolBehavior(resolvedSymbol, kind);
-
-        const context = await this.resolveInvocationContext(input.context);
-        const resolvedArgs = this.resolveArgsWithRefs(rawArgs, context);
-        const discordExports = (await import("discord.js")) as Record<
-            string,
-            unknown
-        >;
-
-        const instanceMatch = symbol.match(
-            /^([A-Za-z_$][A-Za-z0-9_$]*)#([A-Za-z_$][A-Za-z0-9_$]*)$/,
-        );
-        const staticMatch = symbol.match(
-            /^([A-Za-z_$][A-Za-z0-9_$]*)\.([A-Za-z_$][A-Za-z0-9_$]*)$/,
-        );
-
-        let callable: ((...args: unknown[]) => unknown | Promise<unknown>) | null =
-            null;
-        let value: unknown = undefined;
-        let invocationMode: "export" | "instance" | "static" | "metadata" =
-            "metadata";
-        let targetLabel = "export";
-        let resolvedTarget: unknown = undefined;
-        let classNameForInvocation: string | undefined;
-
-        if (instanceMatch) {
-            const className = instanceMatch[1];
-            const methodName = instanceMatch[2];
-            classNameForInvocation = className;
-            invocationMode = "instance";
-
-            const explicitTarget = input.target
-                ? this.getContextValueByTarget(input.target, context)
-                : undefined;
-            const autoTarget =
-                input.target && input.target !== "auto"
-                    ? undefined
-                    : this.resolveAutoTargetForClass(className, context);
-            const targetObject = explicitTarget ?? autoTarget;
-            targetLabel =
-                input.target && input.target !== "auto"
-                    ? input.target
-                    : className;
-            resolvedTarget = targetObject;
-
-            if (!targetObject || typeof targetObject !== "object") {
-                if (!dryRun) {
-                    throw new Error(
-                        `Unable to resolve target instance for '${className}#${methodName}'. Provide 'target' and context IDs.`,
+                    const matches = catalog.items.filter(
+                        (item) =>
+                            item.name === symbol &&
+                            (input.kind ? item.kind === input.kind : true),
                     );
-                }
-            } else {
-                const methodValue = (targetObject as Record<string, unknown>)[
-                    methodName
-                ];
-                if (typeof methodValue !== "function") {
-                    if (!dryRun) {
+
+                    if (matches.length === 0) {
+                        const suggestions = catalog.items
+                            .slice(0, 10)
+                            .map((item) => `${item.name}:${item.kind}`);
                         throw new Error(
-                            `Resolved target for '${className}#${methodName}' does not expose a callable '${methodName}' method.`,
+                            `Symbol '${symbol}' was not found in '${packageAlias}' catalog.${suggestions.length > 0 ? ` Suggestions: ${suggestions.join(", ")}` : ""}`,
                         );
                     }
-                } else {
-                    callable = methodValue.bind(targetObject);
-                    value = methodValue;
-                }
-            }
-        } else if (staticMatch) {
-            const className = staticMatch[1];
-            const methodName = staticMatch[2];
-            classNameForInvocation = className;
-            invocationMode = "static";
 
-            const classValue = discordExports[className];
-            targetLabel = className;
-            resolvedTarget = classValue;
-
-            if (!classValue || typeof classValue !== "function") {
-                if (!dryRun) {
-                    throw new Error(
-                        `Class export '${className}' was not found in discord.js runtime exports.`,
+                    const kind = this.pickSymbolKind(
+                        matches.map((item) => item.kind as DiscordJsInvocationKind),
+                        input.kind,
                     );
-                }
-            } else {
-                const staticContainer = classValue as unknown as Record<
-                    string,
-                    unknown
-                >;
-                const staticValue = staticContainer[methodName];
-                if (typeof staticValue !== "function") {
-                    if (!dryRun) {
-                        throw new Error(
-                            `Static method '${className}.${methodName}' was not found or is not callable.`,
+                    const symbolMeta =
+                        matches.find((item) => item.kind === kind) || matches[0];
+                    const requestedSymbol = symbol;
+                    const resolvedSymbol = symbolMeta.aliasOf || symbolMeta.name;
+                    const invoke = input.invoke ?? true;
+                    const dryRun = input.dryRun ?? false;
+                    const allowWrite = input.allowWrite ?? false;
+                    const policyMode = input.policyMode ?? "strict";
+                    const rawArgs = input.args || [];
+                    const behaviorClass =
+                        (symbolMeta.behaviorClass as
+                            | DiscordJsBehaviorClass
+                            | undefined) ||
+                        classifyDiscordJsSymbolBehavior(resolvedSymbol, kind);
+                    const runtimeExports =
+                        await getDiscordRuntimeExportsByAlias(packageAlias);
+                    const context = await this.resolveInvocationContext(input.context);
+                    const resolvedArgs = this.resolveArgsWithRefs(rawArgs, context);
+
+                    const instanceMatch = symbol.match(
+                        /^([A-Za-z_$][A-Za-z0-9_$]*)#([A-Za-z_$][A-Za-z0-9_$]*)$/,
+                    );
+                    const staticMatch = symbol.match(
+                        /^([A-Za-z_$][A-Za-z0-9_$]*)\.([A-Za-z_$][A-Za-z0-9_$]*)$/,
+                    );
+
+                    let callable:
+                        | ((...args: unknown[]) => unknown | Promise<unknown>)
+                        | null = null;
+                    let value: unknown = undefined;
+                    let invocationMode:
+                        | "export"
+                        | "instance"
+                        | "static"
+                        | "metadata" = "metadata";
+                    let targetLabel = "export";
+                    let resolvedTarget: unknown = undefined;
+                    let classNameForInvocation: string | undefined;
+
+                    if (instanceMatch) {
+                        const className = instanceMatch[1];
+                        const methodName = instanceMatch[2];
+                        classNameForInvocation = className;
+                        invocationMode = "instance";
+
+                        const explicitTarget = input.target
+                            ? this.getContextValueByTarget(input.target, context)
+                            : undefined;
+                        const autoTarget =
+                            input.target && input.target !== "auto"
+                                ? undefined
+                                : this.resolveAutoTargetForClass(className, context);
+                        const targetObject = explicitTarget ?? autoTarget;
+                        targetLabel =
+                            input.target && input.target !== "auto"
+                                ? input.target
+                                : className;
+                        resolvedTarget = targetObject;
+
+                        if (!targetObject || typeof targetObject !== "object") {
+                            if (!dryRun) {
+                                throw new Error(
+                                    `Unable to resolve target instance for '${className}#${methodName}'. Provide 'target' and context IDs.`,
+                                );
+                            }
+                        } else {
+                            const methodValue = (targetObject as Record<string, unknown>)[
+                                methodName
+                            ];
+                            if (typeof methodValue !== "function") {
+                                if (!dryRun) {
+                                    throw new Error(
+                                        `Resolved target for '${className}#${methodName}' does not expose a callable '${methodName}' method.`,
+                                    );
+                                }
+                            } else {
+                                callable = methodValue.bind(targetObject);
+                                value = methodValue;
+                            }
+                        }
+                    } else if (staticMatch) {
+                        const className = staticMatch[1];
+                        const methodName = staticMatch[2];
+                        classNameForInvocation = className;
+                        invocationMode = "static";
+
+                        const classValue = runtimeExports[className];
+                        targetLabel = className;
+                        resolvedTarget = classValue;
+
+                        if (!classValue || typeof classValue !== "function") {
+                            if (!dryRun) {
+                                throw new Error(
+                                    `Class export '${className}' was not found in '${packageAlias}' runtime exports.`,
+                                );
+                            }
+                        } else {
+                            const staticContainer = classValue as unknown as Record<
+                                string,
+                                unknown
+                            >;
+                            const staticValue = staticContainer[methodName];
+                            if (typeof staticValue !== "function") {
+                                if (!dryRun) {
+                                    throw new Error(
+                                        `Static method '${className}.${methodName}' was not found or is not callable.`,
+                                    );
+                                }
+                            } else {
+                                callable = staticValue.bind(classValue);
+                                value = staticValue;
+                            }
+                        }
+                    } else {
+                        invocationMode = "export";
+                        value = runtimeExports[symbol];
+                        resolvedTarget = value;
+
+                        if (typeof value === "function") {
+                            const fn = value as (...args: unknown[]) => unknown;
+                            const source = Function.prototype.toString.call(fn);
+                            const isClassConstructor = source.startsWith("class ");
+                            if (!isClassConstructor) {
+                                callable = fn;
+                            }
+                        }
+                    }
+
+                    const canInvoke =
+                        kind === "function" &&
+                        callable !== null &&
+                        typeof callable === "function";
+                    const policyResult = this.evaluateDiscordJsInvocationPolicy({
+                        symbol: resolvedSymbol,
+                        behaviorClass,
+                        allowWrite,
+                        policyMode,
+                    });
+                    const contextRequirements =
+                        this.inferInvocationContextRequirements({
+                            target: input.target,
+                            invocationMode,
+                            className: classNameForInvocation,
+                        });
+                    const resolvedTargetSummary = this.summarizeResolvedTarget(
+                        targetLabel,
+                        resolvedTarget,
+                    );
+
+                    if (dryRun) {
+                        return JSON.stringify(
+                            {
+                                packageAlias: symbolMeta.packageAlias,
+                                packageName: symbolMeta.packageName,
+                                moduleVersion: symbolMeta.moduleVersion,
+                                symbol: requestedSymbol,
+                                requestedSymbol,
+                                resolvedSymbol,
+                                aliasOf: symbolMeta.aliasOf,
+                                origin: symbolMeta.origin,
+                                kind,
+                                docsPath: symbolMeta.docsPath,
+                                dryRun: true,
+                                invocationMode,
+                                callable: canInvoke,
+                                behaviorClass,
+                                policyMode,
+                                policyDecision: policyResult.decision,
+                                requiresAllowWrite: policyResult.requiresAllowWrite,
+                                blockedReason: policyResult.reason,
+                                resolvedTarget: resolvedTargetSummary,
+                                contextRequirements,
+                                argCount: resolvedArgs.length,
+                                wouldInvoke:
+                                    invoke &&
+                                    canInvoke &&
+                                    policyResult.decision === "allow",
+                            },
+                            null,
+                            2,
                         );
                     }
-                } else {
-                    callable = staticValue.bind(classValue);
-                    value = staticValue;
-                }
-            }
-        } else {
-            invocationMode = "export";
-            value = discordExports[symbol];
-            resolvedTarget = value;
 
-            if (typeof value === "function") {
-                const fn = value as (...args: unknown[]) => unknown;
-                const source = Function.prototype.toString.call(fn);
-                const isClassConstructor = source.startsWith("class ");
-                if (!isClassConstructor) {
-                    callable = fn;
-                }
-            }
-        }
+                    if (invoke && !canInvoke) {
+                        throw new Error(
+                            `Symbol '${requestedSymbol}' (${kind}) is not invokable. Use 'invoke: false' to fetch metadata/value.`,
+                        );
+                    }
 
-        const canInvoke =
-            kind === "function" &&
-            callable !== null &&
-            typeof callable === "function";
-        const policyResult = this.evaluateDiscordJsInvocationPolicy({
-            symbol: resolvedSymbol,
-            behaviorClass,
-            allowWrite,
-            policyMode,
-        });
-        const contextRequirements = this.inferInvocationContextRequirements({
-            target: input.target,
-            invocationMode,
-            className: classNameForInvocation,
-        });
-        const resolvedTargetSummary = this.summarizeResolvedTarget(
-            targetLabel,
-            resolvedTarget,
-        );
+                    if (!invoke || !callable) {
+                        const payload: Record<string, unknown> = {
+                            packageAlias: symbolMeta.packageAlias,
+                            packageName: symbolMeta.packageName,
+                            moduleVersion: symbolMeta.moduleVersion,
+                            symbol: requestedSymbol,
+                            requestedSymbol,
+                            resolvedSymbol,
+                            aliasOf: symbolMeta.aliasOf,
+                            origin: symbolMeta.origin,
+                            kind,
+                            docsPath: symbolMeta.docsPath,
+                            invocationMode,
+                            callable: canInvoke,
+                            behaviorClass,
+                            policyMode,
+                            policyDecision: policyResult.decision,
+                            requiresAllowWrite: policyResult.requiresAllowWrite,
+                            resolvedTarget: resolvedTargetSummary,
+                            contextRequirements,
+                        };
 
-        if (dryRun) {
-            return JSON.stringify(
-                {
-                    symbol: requestedSymbol,
-                    requestedSymbol,
-                    resolvedSymbol,
-                    aliasOf: symbolMeta.aliasOf,
-                    origin: symbolMeta.origin,
-                    kind,
-                    docsPath: symbolMeta.docsPath,
-                    dryRun: true,
-                    invocationMode,
-                    callable: canInvoke,
-                    behaviorClass,
-                    policyMode,
-                    policyDecision: policyResult.decision,
-                    requiresAllowWrite: policyResult.requiresAllowWrite,
-                    blockedReason: policyResult.reason,
-                    resolvedTarget: resolvedTargetSummary,
-                    contextRequirements,
-                    argCount: resolvedArgs.length,
-                    wouldInvoke:
-                        invoke &&
-                        canInvoke &&
-                        policyResult.decision === "allow",
-                },
-                null,
-                2,
-            );
-        }
+                        if (policyResult.reason) {
+                            payload.blockedReason = policyResult.reason;
+                        }
 
-        if (invoke && !canInvoke) {
-            throw new Error(
-                `Symbol '${requestedSymbol}' (${kind}) is not invokable. Use 'invoke: false' to fetch metadata/value.`,
-            );
-        }
+                        if (kind === "event") {
+                            payload.eventMetadata = this.buildEventMetadata(
+                                resolvedSymbol,
+                                runtimeExports,
+                            );
+                        } else {
+                            payload.value = this.serializeInvocationValue(value);
+                        }
 
-        if (!invoke || !callable) {
-            const payload: Record<string, unknown> = {
-                symbol: requestedSymbol,
-                requestedSymbol,
-                resolvedSymbol,
-                aliasOf: symbolMeta.aliasOf,
-                origin: symbolMeta.origin,
-                kind,
-                docsPath: symbolMeta.docsPath,
-                invocationMode,
-                callable: canInvoke,
-                behaviorClass,
-                policyMode,
-                policyDecision: policyResult.decision,
-                requiresAllowWrite: policyResult.requiresAllowWrite,
-                resolvedTarget: resolvedTargetSummary,
-                contextRequirements,
-            };
+                        return JSON.stringify(payload, null, 2);
+                    }
 
-            if (policyResult.reason) {
-                payload.blockedReason = policyResult.reason;
-            }
+                    if (policyResult.decision === "blocked") {
+                        return JSON.stringify(
+                            {
+                                packageAlias: symbolMeta.packageAlias,
+                                packageName: symbolMeta.packageName,
+                                moduleVersion: symbolMeta.moduleVersion,
+                                symbol: requestedSymbol,
+                                requestedSymbol,
+                                resolvedSymbol,
+                                aliasOf: symbolMeta.aliasOf,
+                                origin: symbolMeta.origin,
+                                kind,
+                                docsPath: symbolMeta.docsPath,
+                                invoked: false,
+                                invocationMode,
+                                behaviorClass,
+                                policyMode,
+                                policyDecision: "blocked",
+                                requiresAllowWrite: policyResult.requiresAllowWrite,
+                                blockedReason: policyResult.reason,
+                                resolvedTarget: resolvedTargetSummary,
+                                contextRequirements,
+                            },
+                            null,
+                            2,
+                        );
+                    }
 
-            if (kind === "event") {
-                payload.eventMetadata = this.buildEventMetadata(
-                    resolvedSymbol,
-                    discordExports,
-                );
-            } else {
-                payload.value = this.serializeInvocationValue(value);
-            }
-
-            return JSON.stringify(payload, null, 2);
-        }
-
-        if (policyResult.decision === "blocked") {
-            return JSON.stringify(
-                {
-                    symbol: requestedSymbol,
-                    requestedSymbol,
-                    resolvedSymbol,
-                    aliasOf: symbolMeta.aliasOf,
-                    origin: symbolMeta.origin,
-                    kind,
-                    docsPath: symbolMeta.docsPath,
-                    invoked: false,
-                    invocationMode,
-                    behaviorClass,
-                    policyMode,
-                    policyDecision: "blocked",
-                    requiresAllowWrite: policyResult.requiresAllowWrite,
-                    blockedReason: policyResult.reason,
-                    resolvedTarget: resolvedTargetSummary,
-                    contextRequirements,
-                },
-                null,
-                2,
-            );
-        }
-
-        let result: unknown;
-        try {
-            result = await Promise.resolve(callable(...resolvedArgs));
-        } catch (error) {
-            throw new Error(
-                `Invocation failed for '${symbol}': ${error instanceof Error ? error.message : String(error)}`,
-            );
-        }
+                    let result: unknown;
+                    try {
+                        result = await Promise.resolve(callable(...resolvedArgs));
+                    } catch (error) {
+                        throw new Error(
+                            `Invocation failed for '${symbol}': ${error instanceof Error ? error.message : String(error)}`,
+                        );
+                    }
 
                     return JSON.stringify(
                         {
+                            packageAlias: symbolMeta.packageAlias,
+                            packageName: symbolMeta.packageName,
+                            moduleVersion: symbolMeta.moduleVersion,
                             symbol: requestedSymbol,
                             requestedSymbol,
                             resolvedSymbol,
@@ -619,7 +648,8 @@ export class DiscordService {
                     "discord.layer": "symbol",
                     "discord.mode": this.currentAuthConfig.tokenType,
                     "discord.method": "automation.write",
-                    "discord.operation": `discordjs.${operationKind}`,
+                    "discord.package_alias": operationPackageAlias,
+                    "discord.operation": `discordpkg.${operationPackageAlias}.${operationKind}`,
                     "discord.operation_type": "invocation",
                     "discord.risk_tier": "high",
                     "discord.status": status,

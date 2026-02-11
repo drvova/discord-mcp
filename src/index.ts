@@ -12,16 +12,22 @@ import { DiscordController } from "./core/DiscordController.js";
 import { Logger } from "./core/Logger.js";
 import { OAuthManager } from "./core/OAuthManager.js";
 import { writeAuditEvent } from "./gateway/audit-log.js";
-import { getDiscordJsSymbolsCatalog } from "./gateway/discordjs-symbol-catalog.js";
+import {
+    getDiscordJsSymbolsCatalog,
+    getDiscordPackageSymbolsCatalog,
+    listLoadedDiscordRuntimePackages,
+} from "./gateway/discordjs-symbol-catalog.js";
 import { createHttpApp } from "./http-app.js";
 import {
-    DISCORDJS_DISCOVERY_OPERATION,
     DYNAMIC_DISCORDJS_OPERATION_PREFIX,
+    DYNAMIC_DISCORDPKG_OPERATION_PREFIX,
     DOMAIN_METHODS,
     type DomainMethod,
     type DiscordOperation,
     isDiscordJsDiscoveryOperation,
     isDiscordJsInvocationOperation,
+    isDiscordPkgDiscoveryOperation,
+    isDiscordPkgInvocationOperation,
     resolveDomainMethod,
     resolveOperationForMethod,
 } from "./gateway/domain-registry.js";
@@ -112,38 +118,83 @@ type DiscordJsInvocationKind =
 
 type DiscordJsDynamicOperationKind = DiscordJsInvocationKind | "meta";
 
-type ParsedDynamicDiscordJsOperation = {
+type DynamicDiscordOperationSource = "discordjs" | "discordpkg";
+
+type ParsedDynamicDiscordOperation = {
+    source: DynamicDiscordOperationSource;
+    packageAlias: string;
     kind: DiscordJsDynamicOperationKind;
     symbol: string;
 };
 
-function parseDynamicDiscordJsOperation(
+function parseDynamicDiscordOperation(
     operation: string,
-): ParsedDynamicDiscordJsOperation | null {
+): ParsedDynamicDiscordOperation | null {
     const normalized = operation.trim();
+    const lower = normalized.toLowerCase();
     if (
-        !normalized
-            .toLowerCase()
-            .startsWith(DYNAMIC_DISCORDJS_OPERATION_PREFIX)
+        !lower.startsWith(DYNAMIC_DISCORDJS_OPERATION_PREFIX) &&
+        !lower.startsWith(DYNAMIC_DISCORDPKG_OPERATION_PREFIX)
     ) {
         return null;
     }
 
-    const withoutPrefix = normalized.slice(
-        DYNAMIC_DISCORDJS_OPERATION_PREFIX.length,
-    );
-    const separatorIndex = withoutPrefix.indexOf(".");
-    if (separatorIndex <= 0) {
-        throw new Error(
-            `Dynamic discord.js operation '${operation}' must match 'discordjs.<kind>.<symbol>'.`,
+    let source: DynamicDiscordOperationSource;
+    let packageAlias: string;
+    let rawKind: string;
+    let encodedSymbol: string;
+
+    if (lower.startsWith(DYNAMIC_DISCORDJS_OPERATION_PREFIX)) {
+        source = "discordjs";
+        packageAlias = "discordjs";
+        const withoutPrefix = normalized.slice(
+            DYNAMIC_DISCORDJS_OPERATION_PREFIX.length,
         );
+        const separatorIndex = withoutPrefix.indexOf(".");
+        if (separatorIndex <= 0) {
+            throw new Error(
+                `Dynamic discord.js operation '${operation}' must match 'discordjs.<kind>.<symbol>'.`,
+            );
+        }
+        rawKind = withoutPrefix.slice(0, separatorIndex).toLowerCase();
+        encodedSymbol = withoutPrefix.slice(separatorIndex + 1);
+    } else {
+        source = "discordpkg";
+        const withoutPrefix = normalized.slice(
+            DYNAMIC_DISCORDPKG_OPERATION_PREFIX.length,
+        );
+        const packageSeparatorIndex = withoutPrefix.indexOf(".");
+        if (packageSeparatorIndex <= 0) {
+            throw new Error(
+                `Dynamic Discord package operation '${operation}' must match 'discordpkg.<packageAlias>.<kind>.<symbol>'.`,
+            );
+        }
+
+        packageAlias = withoutPrefix
+            .slice(0, packageSeparatorIndex)
+            .trim()
+            .toLowerCase();
+        if (!packageAlias || packageAlias === "meta") {
+            throw new Error(
+                `Dynamic Discord package operation '${operation}' must use a non-'meta' package alias.`,
+            );
+        }
+
+        const afterPackageAlias = withoutPrefix.slice(packageSeparatorIndex + 1);
+        const kindSeparatorIndex = afterPackageAlias.indexOf(".");
+        if (kindSeparatorIndex <= 0) {
+            throw new Error(
+                `Dynamic Discord package operation '${operation}' must include both kind and symbol segments.`,
+            );
+        }
+
+        rawKind = afterPackageAlias.slice(0, kindSeparatorIndex).toLowerCase();
+        encodedSymbol = afterPackageAlias.slice(kindSeparatorIndex + 1);
     }
 
-    const rawKind = withoutPrefix.slice(0, separatorIndex).toLowerCase();
-    const encodedSymbol = withoutPrefix.slice(separatorIndex + 1);
     if (!encodedSymbol.trim()) {
         throw new Error(
-            `Dynamic discord.js operation '${operation}' is missing symbol name after kind.`,
+            `Dynamic operation '${operation}' is missing symbol name after kind.`,
         );
     }
 
@@ -163,7 +214,7 @@ function parseDynamicDiscordJsOperation(
 
     if (!allowedKinds.includes(rawKind as DiscordJsDynamicOperationKind)) {
         throw new Error(
-            `Unsupported discord.js dynamic kind '${rawKind}'. Supported kinds: ${allowedKinds.join(", ")}.`,
+            `Unsupported dynamic kind '${rawKind}'. Supported kinds: ${allowedKinds.join(", ")}.`,
         );
     }
 
@@ -175,6 +226,8 @@ function parseDynamicDiscordJsOperation(
     }
 
     return {
+        source,
+        packageAlias,
         kind: rawKind as DiscordJsDynamicOperationKind,
         symbol,
     };
@@ -192,7 +245,7 @@ function coerceDynamicDiscordJsArgs(rawArgs: unknown): Record<string, unknown> {
     }
 
     throw new Error(
-        "Dynamic discord.js operations require 'params' or 'args' as an object or array.",
+        "Dynamic Discord operations require 'params' or 'args' as an object or array.",
     );
 }
 
@@ -224,7 +277,7 @@ const getAllTools = () => [
                 operation: {
                     type: "string",
                     description:
-                        "Operation key. Discovery: discordjs.meta.symbols (method automation.read). Invocation: discordjs.<kind>.<symbol> (method automation.write, for example: discordjs.function.channelMention or discordjs.function.Guild%23fetch).",
+                        "Operation key. Discovery: discordjs.meta.symbols or discordpkg.meta.symbols (method automation.read). Invocation: discordjs.<kind>.<symbol> or discordpkg.<packageAlias>.<kind>.<symbol> (method automation.write, for example: discordjs.function.channelMention or discordpkg.discordjs_voice.function.joinVoiceChannel).",
                 },
                 params: {
                     type: "object",
@@ -323,7 +376,9 @@ function normalizeParamsBySchemaOrder(
 ): Record<string, unknown> {
     const ordered: Record<string, unknown> = {};
     const knownKeys = new Set<string>();
-    const schemaKeys = isDiscordJsDiscoveryOperation(operation)
+    const schemaKeys =
+        isDiscordJsDiscoveryOperation(operation) ||
+        isDiscordPkgDiscoveryOperation(operation)
         ? DISCOVERY_PARAM_KEYS
         : INVOCATION_PARAM_KEYS;
 
@@ -343,16 +398,22 @@ function normalizeParamsBySchemaOrder(
     return ordered;
 }
 
-function coerceDiscoveryDiscordJsArgs(rawArgs: unknown): Record<string, unknown> {
+function coerceDiscoveryDiscordArgs(
+    rawArgs: unknown,
+    operationLabel: string,
+): Record<string, unknown> {
     return coerceArgsToParams(
         rawArgs,
         DISCOVERY_PARAM_KEYS,
-        DISCORDJS_DISCOVERY_OPERATION,
+        operationLabel,
     );
 }
 
 function inferRiskTier(operation: DiscordOperation): RiskTier {
-    if (isDiscordJsInvocationOperation(operation)) {
+    if (
+        isDiscordJsInvocationOperation(operation) ||
+        isDiscordPkgInvocationOperation(operation)
+    ) {
         return "high";
     }
 
@@ -363,7 +424,11 @@ function enforceOperationPolicy(
     mode: IdentityMode,
     operation: DiscordOperation,
 ): RiskTier {
-    if (mode === "user" && isDiscordJsInvocationOperation(operation)) {
+    if (
+        mode === "user" &&
+        (isDiscordJsInvocationOperation(operation) ||
+            isDiscordPkgInvocationOperation(operation))
+    ) {
         throw new Error(
             `Operation '${operation}' is blocked for user mode. Use bot mode for this operation.`,
         );
@@ -455,22 +520,33 @@ function parseDiscordManageCall(
 
     const method = resolveDomainMethod(rawMethod);
     const operation = resolveOperationForMethod(method, rawOperation);
-    const dynamicOperation = parseDynamicDiscordJsOperation(operation);
-    if (!dynamicOperation) {
-        throw new Error(
-            `Operation '${operation}' is not a valid dynamic discord.js operation.`,
-        );
+    const isDiscoveryOperation =
+        isDiscordJsDiscoveryOperation(operation) ||
+        isDiscordPkgDiscoveryOperation(operation);
+    const isInvocationOperation =
+        isDiscordJsInvocationOperation(operation) ||
+        isDiscordPkgInvocationOperation(operation);
+
+    if (!isDiscoveryOperation && !isInvocationOperation) {
+        throw new Error(`Unsupported dynamic operation '${operation}'.`);
     }
 
     let params: Record<string, unknown>;
-    if (isDiscordJsDiscoveryOperation(operation)) {
+    if (isDiscoveryOperation) {
         params = normalizeParamsBySchemaOrder(
             operation,
             rawParams !== undefined
-                ? coerceDiscoveryDiscordJsArgs(rawParams)
-                : coerceDiscoveryDiscordJsArgs(rawMethodArgs),
+                ? coerceDiscoveryDiscordArgs(rawParams, operation)
+                : coerceDiscoveryDiscordArgs(rawMethodArgs, operation),
         );
-    } else if (isDiscordJsInvocationOperation(operation)) {
+    } else {
+        const dynamicOperation = parseDynamicDiscordOperation(operation);
+        if (!dynamicOperation) {
+            throw new Error(
+                `Operation '${operation}' is not a valid dynamic Discord operation.`,
+            );
+        }
+
         const baseParams =
             rawParams !== undefined
                 ? coerceDynamicDiscordJsArgs(rawParams)
@@ -482,8 +558,21 @@ function parseDiscordManageCall(
             );
         }
 
+        const explicitPackageAlias = baseParams.packageAlias;
+        if (
+            typeof explicitPackageAlias === "string" &&
+            explicitPackageAlias.trim() &&
+            explicitPackageAlias.trim().toLowerCase() !==
+                dynamicOperation.packageAlias
+        ) {
+            throw new Error(
+                `Invocation params packageAlias '${explicitPackageAlias}' does not match operation package alias '${dynamicOperation.packageAlias}'.`,
+            );
+        }
+
         const dynamicInvokeParams: Record<string, unknown> = {
             ...baseParams,
+            packageAlias: dynamicOperation.packageAlias,
             symbol: dynamicOperation.symbol,
             kind: dynamicOperation.kind,
         };
@@ -494,10 +583,6 @@ function parseDiscordManageCall(
         }
 
         params = normalizeParamsBySchemaOrder(operation, dynamicInvokeParams);
-    } else {
-        throw new Error(
-            `Unsupported discord.js operation '${operation}'.`,
-        );
     }
 
     const riskTier = enforceOperationPolicy(mode, operation);
@@ -518,9 +603,11 @@ async function executeDiscordManageOperation(
     const { operation, params } = parsedCall;
     const startedAt = Date.now();
     let status: "success" | "error" = "success";
-    const operationType = isDiscordJsDiscoveryOperation(operation)
-        ? "discovery"
-        : "invocation";
+    const operationType =
+        isDiscordJsDiscoveryOperation(operation) ||
+        isDiscordPkgDiscoveryOperation(operation)
+            ? "discovery"
+            : "invocation";
 
     try {
         return await withSpan(
@@ -545,10 +632,29 @@ async function executeDiscordManageOperation(
                     });
                     return JSON.stringify(catalog, null, 2);
                 }
+                if (isDiscordPkgDiscoveryOperation(operation)) {
+                    const parsed = schemas.GetDiscordjsSymbolsSchema.parse(params);
+                    const catalog = await getDiscordPackageSymbolsCatalog({
+                        kinds: parsed.kinds,
+                        query: parsed.query,
+                        page: parsed.page,
+                        pageSize: parsed.pageSize,
+                        sort: parsed.sort,
+                        includeKindCounts: parsed.includeKindCounts,
+                        package: parsed.package,
+                        packages: parsed.packages,
+                        includeAliases: parsed.includeAliases,
+                    });
+                    return JSON.stringify(catalog, null, 2);
+                }
 
-                if (isDiscordJsInvocationOperation(operation)) {
+                if (
+                    isDiscordJsInvocationOperation(operation) ||
+                    isDiscordPkgInvocationOperation(operation)
+                ) {
                     const parsed = schemas.InvokeDiscordjsSymbolSchema.parse(params);
                     return await discordService.invokeDiscordJsSymbol({
+                        packageAlias: parsed.packageAlias,
                         symbol: parsed.symbol,
                         kind: parsed.kind,
                         invoke: parsed.invoke,
@@ -698,6 +804,10 @@ async function main() {
         // Initialize Discord first
         await initializeDiscord();
         identityStore.ensureDefaultsFromEnv();
+        const runtimePackages = await listLoadedDiscordRuntimePackages();
+        logger.info(
+            `Dynamic runtime packages loaded: ${runtimePackages.map((entry) => `${entry.packageAlias}@${entry.version}`).join(", ")}`,
+        );
 
         // Check if we should use HTTP transport
         const useHttp = process.env.MCP_HTTP_PORT || process.env.PORT;
