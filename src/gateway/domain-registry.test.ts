@@ -5,6 +5,7 @@ import {
     DISCORD_EXEC_INVOKE_OPERATION,
     DISCORD_META_PACKAGES_OPERATION,
     DISCORD_META_PREFLIGHT_OPERATION,
+    DISCORD_META_REFRESH_OPERATION,
     DISCORD_META_SYMBOLS_OPERATION,
     getDomainMethodForOperation,
     getOperationsForMethod,
@@ -57,6 +58,10 @@ test("getDomainMethodForOperation returns deterministic routing", () => {
         "automation.read",
     );
     assert.equal(
+        getDomainMethodForOperation(DISCORD_META_REFRESH_OPERATION),
+        "automation.read",
+    );
+    assert.equal(
         getDomainMethodForOperation(DISCORD_EXEC_INVOKE_OPERATION),
         "automation.write",
     );
@@ -74,10 +79,10 @@ test("getOperationsForMethod returns the exact allowed operation set", () => {
         DISCORD_META_PACKAGES_OPERATION,
         DISCORD_META_SYMBOLS_OPERATION,
         DISCORD_META_PREFLIGHT_OPERATION,
+        DISCORD_META_REFRESH_OPERATION,
     ]);
     assert.deepEqual(getOperationsForMethod("automation.write"), [
         DISCORD_EXEC_INVOKE_OPERATION,
         DISCORD_EXEC_BATCH_OPERATION,
     ]);
 });
-

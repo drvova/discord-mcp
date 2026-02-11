@@ -14,6 +14,7 @@ This repository now uses the **Discord runtime vNext protocol**:
   - `discord.meta.packages`
   - `discord.meta.symbols`
   - `discord.meta.preflight`
+  - `discord.meta.refresh`
 - **Write operations** (`automation.write`):
   - `discord.exec.invoke`
   - `discord.exec.batch`
@@ -29,6 +30,7 @@ This repository now uses the **Discord runtime vNext protocol**:
   - `discord.meta.packages`
   - `discord.meta.symbols`
   - `discord.meta.preflight`
+  - `discord.meta.refresh`
   - `discord.exec.invoke`
   - `discord.exec.batch`
 - `params` or `args`
@@ -37,6 +39,7 @@ Runtime symbol coverage:
 - `class`, `function`, `enum`, `interface`, `type`, and `variable` are discovered.
 - `interface`, `type`, `namespace`, and `variable` can be sourced from package declaration files (`.d.ts`) when missing at runtime.
 - `discord.meta.symbols` can include an operational matrix per symbol for preflight/execution readiness.
+- Catalog responses include `catalogFingerprint`, `catalogBuiltAt`, and `isFresh` metadata for agent-side cache control.
 
 ## Branch Model
 
@@ -221,7 +224,22 @@ The MCP JSON-RPC contract on `POST /` is unchanged (`initialize`, `tools/list`, 
 }
 ```
 
-### 4) Execute Invocation (Safe by Default)
+### 4) Refresh Package + Symbol Catalog
+
+```json
+{
+  "mode": "bot",
+  "identityId": "default-bot",
+  "method": "automation.read",
+  "operation": "discord.meta.refresh",
+  "params": {
+    "force": true,
+    "includeDiff": true
+  }
+}
+```
+
+### 5) Execute Invocation (Safe by Default)
 
 ```json
 {
@@ -245,7 +263,7 @@ The MCP JSON-RPC contract on `POST /` is unchanged (`initialize`, `tools/list`, 
 }
 ```
 
-### 5) Batch Invocation
+### 6) Batch Invocation
 
 ```json
 {
@@ -281,6 +299,7 @@ Legacy operation strings are not supported. Use only vNext operations:
 - `discord.meta.packages`
 - `discord.meta.symbols`
 - `discord.meta.preflight`
+- `discord.meta.refresh`
 - `discord.exec.invoke`
 - `discord.exec.batch`
 
@@ -292,6 +311,7 @@ If you expect thousands of discovered symbols, this is by design:
 - Package discovery is exposed through `discord.meta.packages`.
 - Symbol discovery is exposed through `discord.meta.symbols`.
 - Execution preflight is exposed through `discord.meta.preflight`.
+- Catalog invalidation/refresh is exposed through `discord.meta.refresh`.
 - Single and batch execution are exposed through `discord.exec.invoke` and `discord.exec.batch`.
 - Runtime discovery includes `enum` exports (for example `ChannelType`, `ActivityType`).
 - Startup logs print loaded package aliases and versions.
@@ -310,3 +330,11 @@ If you expect thousands of discovered symbols, this is by design:
 - `npm run dev` (or `bun run dev`) - build once, then run `tsc -w` + `node --watch` with forced pretty logs
 - `npm start` - run compiled stdio server
 - `npm run web` - run compiled Hono HTTP/SSE server on port 1455
+
+## Codex + GH CLI Notes
+
+Use `gh` to track upstream Codex MCP interface updates and keep this server aligned:
+
+- `gh api repos/openai/codex`
+- `gh api repos/openai/codex/contents/codex-rs/docs/codex_mcp_interface.md`
+- `gh api "search/code?q=repo:openai/codex+mcp_tool_call.rs"`

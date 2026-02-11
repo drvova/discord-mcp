@@ -8,6 +8,7 @@ const METHOD_SET = new Set<string>(DOMAIN_METHODS);
 export const DISCORD_META_PACKAGES_OPERATION = "discord.meta.packages";
 export const DISCORD_META_SYMBOLS_OPERATION = "discord.meta.symbols";
 export const DISCORD_META_PREFLIGHT_OPERATION = "discord.meta.preflight";
+export const DISCORD_META_REFRESH_OPERATION = "discord.meta.refresh";
 export const DISCORD_EXEC_INVOKE_OPERATION = "discord.exec.invoke";
 export const DISCORD_EXEC_BATCH_OPERATION = "discord.exec.batch";
 
@@ -15,6 +16,7 @@ const VALID_OPERATIONS = new Set<string>([
     DISCORD_META_PACKAGES_OPERATION,
     DISCORD_META_SYMBOLS_OPERATION,
     DISCORD_META_PREFLIGHT_OPERATION,
+    DISCORD_META_REFRESH_OPERATION,
     DISCORD_EXEC_INVOKE_OPERATION,
     DISCORD_EXEC_BATCH_OPERATION,
 ]);
@@ -23,6 +25,7 @@ const READ_OPERATION_SET = new Set<string>([
     DISCORD_META_PACKAGES_OPERATION,
     DISCORD_META_SYMBOLS_OPERATION,
     DISCORD_META_PREFLIGHT_OPERATION,
+    DISCORD_META_REFRESH_OPERATION,
 ]);
 
 const WRITE_OPERATION_SET = new Set<string>([
@@ -35,6 +38,7 @@ const METHOD_OPERATION_GROUPS: Record<DomainMethod, readonly DiscordOperation[]>
         DISCORD_META_PACKAGES_OPERATION,
         DISCORD_META_SYMBOLS_OPERATION,
         DISCORD_META_PREFLIGHT_OPERATION,
+        DISCORD_META_REFRESH_OPERATION,
     ],
     "automation.write": [
         DISCORD_EXEC_INVOKE_OPERATION,
@@ -64,6 +68,10 @@ export function isDiscordMetaPreflightOperation(operation: string): boolean {
     return (
         operation.trim().toLowerCase() === DISCORD_META_PREFLIGHT_OPERATION
     );
+}
+
+export function isDiscordMetaRefreshOperation(operation: string): boolean {
+    return operation.trim().toLowerCase() === DISCORD_META_REFRESH_OPERATION;
 }
 
 export function isDiscordExecInvokeOperation(operation: string): boolean {
@@ -148,4 +156,3 @@ export function getOperationsForMethod(
 ): readonly DiscordOperation[] {
     return METHOD_OPERATION_GROUPS[method];
 }
-

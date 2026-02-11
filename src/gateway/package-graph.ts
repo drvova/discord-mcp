@@ -8,12 +8,20 @@ export type DiscordRuntimePackage = {
     version: string;
 };
 
+export type ListDiscordRuntimePackagesOptions = {
+    force?: boolean;
+};
+
 const DEFAULT_PACKAGE_ALLOWLIST = ["discord.js", "@discordjs/*"];
 const PACKAGE_ALLOWLIST_ENV = "DISCORD_MCP_SYMBOL_PACKAGE_ALLOWLIST";
 
 const require = createRequire(import.meta.url);
 
 let packageCache: DiscordRuntimePackage[] | null = null;
+
+export function invalidateDiscordRuntimePackageCache(): void {
+    packageCache = null;
+}
 
 function parseAllowlistPatterns(): string[] {
     const configured = process.env[PACKAGE_ALLOWLIST_ENV];
@@ -166,7 +174,13 @@ function getRootDependencyNames(): string[] {
     return Array.from(dependencyNames).sort(sortPackageNames);
 }
 
-export function listDiscordRuntimePackages(): DiscordRuntimePackage[] {
+export function listDiscordRuntimePackages(
+    options: ListDiscordRuntimePackagesOptions = {},
+): DiscordRuntimePackage[] {
+    if (options.force) {
+        invalidateDiscordRuntimePackageCache();
+    }
+
     if (packageCache) {
         return packageCache;
     }

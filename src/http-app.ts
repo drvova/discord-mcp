@@ -83,6 +83,14 @@ const oauthCallbackQueryValidator = validator("query", (value, c) => {
     return parsed.data;
 });
 
+function parseJsonMaybe(payload: string): unknown {
+    try {
+        return JSON.parse(payload) as unknown;
+    } catch {
+        return payload;
+    }
+}
+
 export type ParsedDiscordManageCallLike = {
     mode: IdentityMode;
     identityId: string;
@@ -286,6 +294,13 @@ export function createHttpApp(deps: HttpAppDependencies) {
                                     text: result,
                                 },
                             ],
+                            structuredContent: {
+                                operation: parsedCall.operation,
+                                method: parsedCall.method,
+                                mode: parsedCall.mode,
+                                identityId: parsedCall.identityId,
+                                result: parseJsonMaybe(result),
+                            },
                         },
                     },
                     200,

@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import type { DiscordRuntimePackage } from "./package-graph.js";
@@ -61,6 +62,9 @@ type DiscordJsKindCounts = Partial<Record<DiscordJsSymbolKind, number>>;
 export type DiscordJsSymbolCatalog = {
     package: "discord.js";
     version: string;
+    catalogFingerprint: string;
+    catalogBuiltAt: string;
+    isFresh: boolean;
     kinds: DiscordJsSymbolKind[];
     total: number;
     page: number;
@@ -77,6 +81,9 @@ export type DiscordPackageDescriptor = {
 
 export type DiscordPackageSymbolsCatalog = {
     package: "discord.packages";
+    catalogFingerprint: string;
+    catalogBuiltAt: string;
+    isFresh: boolean;
     packageCount: number;
     packages: DiscordPackageDescriptor[];
     kinds: DiscordJsSymbolKind[];
@@ -87,10 +94,50 @@ export type DiscordPackageSymbolsCatalog = {
     kindCounts?: DiscordJsKindCounts;
 };
 
-type DiscordPackageCatalogCache = {
+export type DiscordCatalogDiffInput = {
     packages: DiscordRuntimePackage[];
     symbols: DiscordJsSymbol[];
+};
+
+type DiscordPackageCatalogSnapshot = DiscordCatalogDiffInput & {
+    catalogFingerprint: string;
+    catalogBuiltAt: string;
     runtimeExportsByAlias: Map<string, Record<string, unknown>>;
+};
+
+type CatalogAccessResult = {
+    snapshot: DiscordPackageCatalogSnapshot;
+    isFresh: boolean;
+    previousSnapshot: DiscordPackageCatalogSnapshot | null;
+    didRebuild: boolean;
+};
+
+export type DiscordCatalogDiffPackageChange = {
+    packageAlias: string;
+    packageName: string;
+    previousVersion?: string;
+    nextVersion?: string;
+    changeType: "added" | "removed" | "updated";
+};
+
+export type DiscordCatalogDiff = {
+    changedPackages: DiscordCatalogDiffPackageChange[];
+    addedSymbols: DiscordJsSymbol[];
+    removedSymbols: DiscordJsSymbol[];
+    kindCountsDelta: DiscordJsKindCounts;
+};
+
+export type DiscordCatalogRefreshResult = {
+    catalogFingerprint: string;
+    catalogBuiltAt: string;
+    isFresh: boolean;
+    didRebuild: boolean;
+    packageCount: number;
+    symbolCount: number;
+    changedPackages: DiscordCatalogDiffPackageChange[];
+    addedSymbols: DiscordJsSymbol[];
+    removedSymbols: DiscordJsSymbol[];
+    kindCountsDelta: DiscordJsKindCounts;
 };
 
 const ALL_KINDS: DiscordJsSymbolKind[] = [
@@ -109,9 +156,13 @@ const ALL_KINDS: DiscordJsSymbolKind[] = [
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 50;
 const DISCORDJS_ALIAS = "discordjs";
+const CATALOG_REFRESH_INTERVAL_ENV = "DISCORD_MCP_CATALOG_REFRESH_INTERVAL_MS";
+const CATALOG_LOCKFILES = ["package-lock.json", "bun.lock", "pnpm-lock.yaml"];
 const require = createRequire(import.meta.url);
 
-let catalogCache: DiscordPackageCatalogCache | null = null;
+let catalogSnapshot: DiscordPackageCatalogSnapshot | null = null;
+let refreshPromise: Promise<CatalogAccessResult> | null = null;
+let refreshLoopHandle: NodeJS.Timeout | null = null;
 
 const DANGEROUS_TOKENS = new Set([
     "ban",
@@ -177,6 +228,120 @@ const READ_TOKENS = new Set([
     "tojson",
     "view",
 ]);
+
+function sortStringRecord(
+    input: Record<string, string> | undefined,
+): Record<string, string> {
+    if (!input) {
+        return {};
+    }
+
+    const entries = Object.entries(input).sort(([a], [b]) =>
+        a.localeCompare(b),
+    );
+    return Object.fromEntries(entries) as Record<string, string>;
+}
+
+function getRootDependencyFingerprintPayload(): {
+    dependencies: Record<string, string>;
+    optionalDependencies: Record<string, string>;
+} {
+    const rootPackageJsonPath = join(process.cwd(), "package.json");
+    if (!existsSync(rootPackageJsonPath)) {
+        throw new Error(
+            `Cannot compute catalog fingerprint: '${rootPackageJsonPath}' not found.`,
+        );
+    }
+
+    const rootPackageJson = JSON.parse(
+        readFileSync(rootPackageJsonPath, "utf8"),
+    ) as {
+        dependencies?: Record<string, string>;
+        optionalDependencies?: Record<string, string>;
+    };
+
+    return {
+        dependencies: sortStringRecord(rootPackageJson.dependencies),
+        optionalDependencies: sortStringRecord(
+            rootPackageJson.optionalDependencies,
+        ),
+    };
+}
+
+function getLockfileSignature(lockfileName: string): string {
+    const path = join(process.cwd(), lockfileName);
+    if (!existsSync(path)) {
+        return `${lockfileName}:missing`;
+    }
+
+    try {
+        const stats = statSync(path);
+        return `${lockfileName}:${stats.size}:${Math.floor(stats.mtimeMs)}`;
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        return `${lockfileName}:error:${reason}`;
+    }
+}
+
+function computeCatalogFingerprint(): string {
+    const dependencyPayload = getRootDependencyFingerprintPayload();
+    const allowlist = process.env.DISCORD_MCP_SYMBOL_PACKAGE_ALLOWLIST || "";
+    const lockfiles = CATALOG_LOCKFILES.map((lockfile) =>
+        getLockfileSignature(lockfile),
+    );
+    const payload = {
+        allowlist,
+        ...dependencyPayload,
+        lockfiles,
+    };
+    return createHash("sha256")
+        .update(JSON.stringify(payload))
+        .digest("hex");
+}
+
+function getConfiguredRefreshIntervalMs(): number | null {
+    const raw = process.env[CATALOG_REFRESH_INTERVAL_ENV];
+    if (!raw || !raw.trim()) {
+        return null;
+    }
+
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed) || parsed < 1_000) {
+        return null;
+    }
+
+    return parsed;
+}
+
+function ensureCatalogRefreshLoop(): void {
+    if (refreshLoopHandle) {
+        return;
+    }
+
+    const intervalMs = getConfiguredRefreshIntervalMs();
+    if (!intervalMs) {
+        return;
+    }
+
+    refreshLoopHandle = setInterval(() => {
+        void getOrRefreshCatalog().catch(() => undefined);
+    }, intervalMs);
+    refreshLoopHandle.unref();
+}
+
+function compareSymbols(a: DiscordJsSymbol, b: DiscordJsSymbol): number {
+    const byName = a.name.localeCompare(b.name);
+    if (byName !== 0) {
+        return byName;
+    }
+
+    const byKind = a.kind.localeCompare(b.kind);
+    if (byKind !== 0) {
+        return byKind;
+    }
+
+    return a.packageAlias.localeCompare(b.packageAlias);
+}
 
 function docsKindLabel(kind: DiscordJsSymbolKind): string {
     switch (kind) {
@@ -868,8 +1033,18 @@ function resolvePackageAliasesFromSelectors(
     return resolved;
 }
 
-async function buildCatalog(): Promise<DiscordPackageCatalogCache> {
-    const runtimePackages = listDiscordRuntimePackages();
+function sortPackages(
+    packages: readonly DiscordRuntimePackage[],
+): DiscordRuntimePackage[] {
+    return [...packages].sort((a, b) =>
+        a.packageAlias.localeCompare(b.packageAlias),
+    );
+}
+
+async function buildCatalog(
+    fingerprint: string,
+): Promise<DiscordPackageCatalogSnapshot> {
+    const runtimePackages = listDiscordRuntimePackages({ force: true });
     const loadedPackages: DiscordRuntimePackage[] = [];
     const runtimeExportsByAlias = new Map<string, Record<string, unknown>>();
     const symbolMap = new Map<string, DiscordJsSymbol>();
@@ -936,25 +1111,61 @@ async function buildCatalog(): Promise<DiscordPackageCatalogCache> {
     }
 
     return {
-        packages: loadedPackages,
-        symbols: Array.from(symbolMap.values()),
+        catalogFingerprint: fingerprint,
+        catalogBuiltAt: new Date().toISOString(),
+        packages: sortPackages(loadedPackages),
+        symbols: Array.from(symbolMap.values()).sort(compareSymbols),
         runtimeExportsByAlias,
     };
 }
 
-async function getBaseCatalog(): Promise<DiscordPackageCatalogCache> {
-    if (catalogCache) {
-        return catalogCache;
+async function getOrRefreshCatalog(options: {
+    force?: boolean;
+} = {}): Promise<CatalogAccessResult> {
+    ensureCatalogRefreshLoop();
+    const force = options.force === true;
+    const currentFingerprint = computeCatalogFingerprint();
+    if (
+        !force &&
+        catalogSnapshot &&
+        catalogSnapshot.catalogFingerprint === currentFingerprint
+    ) {
+        return {
+            snapshot: catalogSnapshot,
+            isFresh: true,
+            previousSnapshot: catalogSnapshot,
+            didRebuild: false,
+        };
     }
 
-    catalogCache = await buildCatalog();
-    return catalogCache;
+    if (refreshPromise) {
+        return refreshPromise;
+    }
+
+    const previousSnapshot = catalogSnapshot;
+    refreshPromise = (async (): Promise<CatalogAccessResult> => {
+        const nextSnapshot = await buildCatalog(currentFingerprint);
+        catalogSnapshot = nextSnapshot;
+        return {
+            snapshot: nextSnapshot,
+            isFresh: true,
+            previousSnapshot,
+            didRebuild: true,
+        };
+    })();
+
+    try {
+        return await refreshPromise;
+    } finally {
+        refreshPromise = null;
+    }
 }
 
 export async function listLoadedDiscordRuntimePackages(): Promise<
     DiscordPackageDescriptor[]
 > {
-    const baseCatalog = await getBaseCatalog();
+    const access = await getOrRefreshCatalog();
+    const baseCatalog = access.snapshot;
     return baseCatalog.packages.map((entry) => ({
         packageName: entry.packageName,
         packageAlias: entry.packageAlias,
@@ -962,11 +1173,173 @@ export async function listLoadedDiscordRuntimePackages(): Promise<
     }));
 }
 
+export async function getDiscordCatalogMetadata(): Promise<{
+    catalogFingerprint: string;
+    catalogBuiltAt: string;
+    isFresh: boolean;
+}> {
+    const access = await getOrRefreshCatalog();
+    return {
+        catalogFingerprint: access.snapshot.catalogFingerprint,
+        catalogBuiltAt: access.snapshot.catalogBuiltAt,
+        isFresh: access.isFresh,
+    };
+}
+
+function toCatalogDiffPackageList(
+    previousSnapshot: DiscordCatalogDiffInput | null,
+    nextSnapshot: DiscordCatalogDiffInput,
+): DiscordCatalogDiffPackageChange[] {
+    const previousByAlias = new Map<string, DiscordRuntimePackage>(
+        (previousSnapshot?.packages || []).map((entry) => [entry.packageAlias, entry]),
+    );
+    const nextByAlias = new Map<string, DiscordRuntimePackage>(
+        nextSnapshot.packages.map((entry) => [entry.packageAlias, entry]),
+    );
+
+    const aliases = new Set<string>([
+        ...previousByAlias.keys(),
+        ...nextByAlias.keys(),
+    ]);
+    const changes: DiscordCatalogDiffPackageChange[] = [];
+
+    for (const alias of aliases) {
+        const previous = previousByAlias.get(alias);
+        const next = nextByAlias.get(alias);
+        if (!previous && next) {
+            changes.push({
+                packageAlias: alias,
+                packageName: next.packageName,
+                nextVersion: next.version,
+                changeType: "added",
+            });
+            continue;
+        }
+        if (previous && !next) {
+            changes.push({
+                packageAlias: alias,
+                packageName: previous.packageName,
+                previousVersion: previous.version,
+                changeType: "removed",
+            });
+            continue;
+        }
+
+        if (
+            previous &&
+            next &&
+            (previous.version !== next.version ||
+                previous.packageName !== next.packageName)
+        ) {
+            changes.push({
+                packageAlias: alias,
+                packageName: next.packageName,
+                previousVersion: previous.version,
+                nextVersion: next.version,
+                changeType: "updated",
+            });
+        }
+    }
+
+    return changes.sort((a, b) => a.packageAlias.localeCompare(b.packageAlias));
+}
+
+function symbolKey(symbol: DiscordJsSymbol): string {
+    return `${symbol.packageAlias}:${symbol.kind}:${symbol.name}`;
+}
+
+function createZeroKindCounts(): DiscordJsKindCounts {
+    const counts: DiscordJsKindCounts = {};
+    for (const kind of ALL_KINDS) {
+        counts[kind] = 0;
+    }
+    return counts;
+}
+
+export function calculateDiscordCatalogDiff(
+    previousSnapshot: DiscordCatalogDiffInput | null,
+    nextSnapshot: DiscordCatalogDiffInput,
+): DiscordCatalogDiff {
+    const previousSymbolMap = new Map<string, DiscordJsSymbol>(
+        (previousSnapshot?.symbols || []).map((entry) => [symbolKey(entry), entry]),
+    );
+    const nextSymbolMap = new Map<string, DiscordJsSymbol>(
+        nextSnapshot.symbols.map((entry) => [symbolKey(entry), entry]),
+    );
+
+    const addedSymbols: DiscordJsSymbol[] = [];
+    const removedSymbols: DiscordJsSymbol[] = [];
+    for (const [key, symbol] of nextSymbolMap.entries()) {
+        if (!previousSymbolMap.has(key)) {
+            addedSymbols.push(symbol);
+        }
+    }
+    for (const [key, symbol] of previousSymbolMap.entries()) {
+        if (!nextSymbolMap.has(key)) {
+            removedSymbols.push(symbol);
+        }
+    }
+
+    const kindCountsDelta: DiscordJsKindCounts = {};
+    for (const kind of ALL_KINDS) {
+        kindCountsDelta[kind] = 0;
+    }
+    for (const symbol of addedSymbols) {
+        kindCountsDelta[symbol.kind] = (kindCountsDelta[symbol.kind] || 0) + 1;
+    }
+    for (const symbol of removedSymbols) {
+        kindCountsDelta[symbol.kind] = (kindCountsDelta[symbol.kind] || 0) - 1;
+    }
+
+    return {
+        changedPackages: toCatalogDiffPackageList(
+            previousSnapshot,
+            nextSnapshot,
+        ),
+        addedSymbols: addedSymbols.sort(compareSymbols),
+        removedSymbols: removedSymbols.sort(compareSymbols),
+        kindCountsDelta,
+    };
+}
+
+export async function refreshDiscordRuntimeCatalog(options: {
+    force?: boolean;
+    includeDiff?: boolean;
+} = {}): Promise<DiscordCatalogRefreshResult> {
+    const includeDiff = options.includeDiff !== false;
+    const access = await getOrRefreshCatalog({
+        force: options.force === true,
+    });
+    const snapshot = access.snapshot;
+    const diff = includeDiff
+        ? calculateDiscordCatalogDiff(access.previousSnapshot, snapshot)
+        : {
+              changedPackages: [],
+              addedSymbols: [],
+              removedSymbols: [],
+              kindCountsDelta: createZeroKindCounts(),
+          };
+
+    return {
+        catalogFingerprint: snapshot.catalogFingerprint,
+        catalogBuiltAt: snapshot.catalogBuiltAt,
+        isFresh: access.isFresh,
+        didRebuild: access.didRebuild,
+        packageCount: snapshot.packages.length,
+        symbolCount: snapshot.symbols.length,
+        changedPackages: diff.changedPackages,
+        addedSymbols: diff.addedSymbols,
+        removedSymbols: diff.removedSymbols,
+        kindCountsDelta: diff.kindCountsDelta,
+    };
+}
+
 export async function resolveLoadedDiscordRuntimePackageByAlias(
     packageAlias: string,
 ): Promise<DiscordPackageDescriptor> {
     const normalizedAlias = packageAlias.trim().toLowerCase();
-    const baseCatalog = await getBaseCatalog();
+    const access = await getOrRefreshCatalog();
+    const baseCatalog = access.snapshot;
     const matchedPackage = baseCatalog.packages.find(
         (entry) => entry.packageAlias === normalizedAlias,
     );
@@ -990,7 +1363,8 @@ export async function getDiscordRuntimeExportsByAlias(
     packageAlias: string,
 ): Promise<Record<string, unknown>> {
     const normalizedAlias = packageAlias.trim().toLowerCase();
-    const baseCatalog = await getBaseCatalog();
+    const access = await getOrRefreshCatalog();
+    const baseCatalog = access.snapshot;
     const runtimeExports = baseCatalog.runtimeExportsByAlias.get(normalizedAlias);
     if (runtimeExports) {
         return runtimeExports;
@@ -1007,7 +1381,8 @@ export async function getDiscordRuntimeExportsByAlias(
 export async function getDiscordPackageSymbolsCatalog(
     options: GetDiscordPackageSymbolsOptions = {},
 ): Promise<DiscordPackageSymbolsCatalog> {
-    const baseCatalog = await getBaseCatalog();
+    const access = await getOrRefreshCatalog();
+    const baseCatalog = access.snapshot;
     const page = options.page ?? DEFAULT_PAGE;
     const pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE;
     const sort = options.sort ?? "name_asc";
@@ -1086,6 +1461,9 @@ export async function getDiscordPackageSymbolsCatalog(
 
     return {
         package: "discord.packages",
+        catalogFingerprint: baseCatalog.catalogFingerprint,
+        catalogBuiltAt: baseCatalog.catalogBuiltAt,
+        isFresh: access.isFresh,
         packageCount: selectedPackages.length,
         packages: selectedPackages.map((entry) => ({
             packageName: entry.packageName,
@@ -1124,6 +1502,9 @@ export async function getDiscordJsSymbolsCatalog(
     return {
         package: "discord.js",
         version: discordJsPackage.version,
+        catalogFingerprint: packageCatalog.catalogFingerprint,
+        catalogBuiltAt: packageCatalog.catalogBuiltAt,
+        isFresh: packageCatalog.isFresh,
         kinds: packageCatalog.kinds,
         total: packageCatalog.total,
         page: packageCatalog.page,

@@ -16,8 +16,10 @@ import { OAuthManager } from "./core/OAuthManager.js";
 import { AppErrorCode, toPublicErrorPayload } from "./core/errors.js";
 import { writeAuditEvent } from "./gateway/audit-log.js";
 import {
+    getDiscordCatalogMetadata,
     getDiscordPackageSymbolsCatalog,
     listLoadedDiscordRuntimePackages,
+    refreshDiscordRuntimeCatalog,
     type DiscordJsSymbol,
 } from "./gateway/discordjs-symbol-catalog.js";
 import { createHttpApp } from "./http-app.js";
@@ -26,6 +28,7 @@ import {
     DISCORD_EXEC_INVOKE_OPERATION,
     DISCORD_META_PACKAGES_OPERATION,
     DISCORD_META_PREFLIGHT_OPERATION,
+    DISCORD_META_REFRESH_OPERATION,
     DISCORD_META_SYMBOLS_OPERATION,
     DOMAIN_METHODS,
     getDomainMethodForOperation,
@@ -33,6 +36,7 @@ import {
     isDiscordExecInvokeOperation,
     isDiscordMetaPackagesOperation,
     isDiscordMetaPreflightOperation,
+    isDiscordMetaRefreshOperation,
     isDiscordMetaSymbolsOperation,
     isDiscordWriteOperation,
     resolveDomainMethod,
@@ -94,6 +98,7 @@ const OPERATION_SCHEMA_BY_NAME: Record<DiscordOperation, AnyZodObject> = {
     [DISCORD_META_PACKAGES_OPERATION]: schemas.DiscordMetaPackagesSchema,
     [DISCORD_META_SYMBOLS_OPERATION]: schemas.DiscordMetaSymbolsSchema,
     [DISCORD_META_PREFLIGHT_OPERATION]: schemas.DiscordMetaPreflightSchema,
+    [DISCORD_META_REFRESH_OPERATION]: schemas.DiscordMetaRefreshSchema,
     [DISCORD_EXEC_INVOKE_OPERATION]: schemas.DiscordExecInvokeSchema,
     [DISCORD_EXEC_BATCH_OPERATION]: schemas.DiscordExecBatchSchema,
 };
@@ -687,7 +692,7 @@ function getAllTools() {
         {
             name: "discord_manage",
             description:
-                "Discord runtime control surface. vNext operations: discord.meta.packages, discord.meta.symbols, discord.meta.preflight, discord.exec.invoke, discord.exec.batch.",
+                "Discord runtime control surface. vNext operations: discord.meta.packages, discord.meta.symbols, discord.meta.preflight, discord.meta.refresh, discord.exec.invoke, discord.exec.batch.",
             inputSchema: {
                 type: "object",
                 properties: {
@@ -710,8 +715,16 @@ function getAllTools() {
                     },
                     operation: {
                         type: "string",
+                        enum: [
+                            DISCORD_META_PACKAGES_OPERATION,
+                            DISCORD_META_SYMBOLS_OPERATION,
+                            DISCORD_META_PREFLIGHT_OPERATION,
+                            DISCORD_META_REFRESH_OPERATION,
+                            DISCORD_EXEC_INVOKE_OPERATION,
+                            DISCORD_EXEC_BATCH_OPERATION,
+                        ],
                         description:
-                            "vNext operations: discord.meta.packages, discord.meta.symbols, discord.meta.preflight, discord.exec.invoke, discord.exec.batch.",
+                            "vNext operations: discord.meta.packages, discord.meta.symbols, discord.meta.preflight, discord.meta.refresh, discord.exec.invoke, discord.exec.batch.",
                     },
                     params: {
                         type: "object",
@@ -1004,6 +1017,7 @@ async function executeDiscordManageOperation(
             async () => {
                 if (isDiscordMetaPackagesOperation(operation)) {
                     const parsed = schemas.DiscordMetaPackagesSchema.parse(params);
+                    const catalogMetadata = await getDiscordCatalogMetadata();
                     const allPackages = await listLoadedDiscordRuntimePackages();
                     const selectors = [
                         ...(parsed.package ? [parsed.package] : []),
@@ -1013,6 +1027,10 @@ async function executeDiscordManageOperation(
                         return JSON.stringify(
                             {
                                 package: "discord.packages",
+                                catalogFingerprint:
+                                    catalogMetadata.catalogFingerprint,
+                                catalogBuiltAt: catalogMetadata.catalogBuiltAt,
+                                isFresh: catalogMetadata.isFresh,
                                 packageCount: allPackages.length,
                                 packages: allPackages,
                             },
@@ -1033,6 +1051,10 @@ async function executeDiscordManageOperation(
                     return JSON.stringify(
                         {
                             package: "discord.packages",
+                            catalogFingerprint:
+                                catalogMetadata.catalogFingerprint,
+                            catalogBuiltAt: catalogMetadata.catalogBuiltAt,
+                            isFresh: catalogMetadata.isFresh,
                             packageCount: filteredPackages.length,
                             packages: filteredPackages,
                         },
@@ -1093,6 +1115,32 @@ async function executeDiscordManageOperation(
                     preflightCanExecute = evaluation.canExecute;
                     blockingReasonCount = evaluation.blockingReasons.length;
                     return JSON.stringify(evaluation.payload, null, 2);
+                }
+
+                if (isDiscordMetaRefreshOperation(operation)) {
+                    const parsed = schemas.DiscordMetaRefreshSchema.parse(params);
+                    const refreshResult = await refreshDiscordRuntimeCatalog({
+                        force: parsed.force ?? true,
+                        includeDiff: parsed.includeDiff ?? true,
+                    });
+                    return JSON.stringify(
+                        {
+                            package: "discord.packages",
+                            catalogFingerprint:
+                                refreshResult.catalogFingerprint,
+                            catalogBuiltAt: refreshResult.catalogBuiltAt,
+                            isFresh: refreshResult.isFresh,
+                            didRebuild: refreshResult.didRebuild,
+                            packageCount: refreshResult.packageCount,
+                            symbolCount: refreshResult.symbolCount,
+                            changedPackages: refreshResult.changedPackages,
+                            addedSymbols: refreshResult.addedSymbols,
+                            removedSymbols: refreshResult.removedSymbols,
+                            kindCountsDelta: refreshResult.kindCountsDelta,
+                        },
+                        null,
+                        2,
+                    );
                 }
 
                 if (isDiscordExecInvokeOperation(operation)) {
@@ -1208,6 +1256,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                             return executeDiscordManageOperation(currentCall);
                         },
                     );
+                    const parsedResult = parseJsonMaybe(result);
 
                     writeAuditEvent({
                         identityId: currentCall.identityId,
@@ -1221,6 +1270,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
                     return {
                         content: [{ type: "text", text: result }],
+                        structuredContent: {
+                            operation: currentCall.operation,
+                            method: currentCall.method,
+                            mode: currentCall.mode,
+                            identityId: currentCall.identityId,
+                            result: parsedResult,
+                        },
                     };
                 } catch (error) {
                     if (parsedCall) {

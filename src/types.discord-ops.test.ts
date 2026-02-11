@@ -4,6 +4,7 @@ import {
     DiscordExecBatchSchema,
     DiscordExecInvokeSchema,
     DiscordMetaPreflightSchema,
+    DiscordMetaRefreshSchema,
     DiscordMetaSymbolsSchema,
 } from "./types.js";
 
@@ -32,6 +33,16 @@ test("DiscordMetaPreflightSchema strict flags parse as booleans", () => {
 
     assert.equal(parsed.strictContextCheck, true);
     assert.equal(parsed.strictArgCheck, false);
+});
+
+test("DiscordMetaRefreshSchema accepts refresh controls", () => {
+    const parsed = DiscordMetaRefreshSchema.parse({
+        force: true,
+        includeDiff: false,
+    });
+
+    assert.equal(parsed.force, true);
+    assert.equal(parsed.includeDiff, false);
 });
 
 test("DiscordExecInvokeSchema validates required fields", () => {
@@ -75,4 +86,3 @@ test("DiscordExecInvokeSchema rejects unknown kind values", () => {
             }),
     );
 });
-

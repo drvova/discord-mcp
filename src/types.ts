@@ -1432,6 +1432,19 @@ export const DiscordMetaPreflightSchema = z.object({
         ),
 });
 
+export const DiscordMetaRefreshSchema = z.object({
+    force: z
+        .boolean()
+        .optional()
+        .describe("Force rebuild of runtime package/symbol catalog"),
+    includeDiff: z
+        .boolean()
+        .optional()
+        .describe(
+            "Include package and symbol diffs against the previous catalog snapshot (defaults to true).",
+        ),
+});
+
 export const DiscordExecInvokeSchema = z.object({
     packageAlias: z
         .string()
