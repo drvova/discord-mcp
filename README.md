@@ -2,46 +2,41 @@
 
 > **⚠️ Security Notice**: This project handles Discord credentials and privileged Discord operations. Treat all tokens and secrets as sensitive.
 
-Discord MCP Server exposes Discord.js through one MCP tool with a dynamic symbol router.
+Discord MCP Server exposes Discord runtime packages through one MCP tool with a unified metadata/execution protocol.
 
 ## Current Architecture
 
-This repository now uses the **dynamic Discord.js routing architecture**:
+This repository now uses the **Discord runtime vNext protocol**:
 
 - **MCP tool**: `discord_manage`
 - **HTTP runtime**: Hono (`@hono/node-server`)
-- **Discovery operation**:
-  - `discordjs.meta.symbols` (method: `automation.read`)
-  - `discordpkg.meta.symbols` (method: `automation.read`)
-- **Invocation operation format**:
-  - `discordjs.<kind>.<symbol>` (method: `automation.write`)
-  - `discordpkg.<packageAlias>.<kind>.<symbol>` (method: `automation.write`)
-  - Example: `discordjs.function.TextChannel%23send`
+- **Read operations** (`automation.read`):
+  - `discord.meta.packages`
+  - `discord.meta.symbols`
+  - `discord.meta.preflight`
+- **Write operations** (`automation.write`):
+  - `discord.exec.invoke`
+  - `discord.exec.batch`
 
-### Domain Method Contract
+### Tool Contract
 
 `discord_manage` uses the contract below:
 
 - `mode`: `bot` or `user`
 - `identityId`: identity record (for example `default-bot`)
-- `method`: one of
-  - `server.read`, `server.write`, `channels.read`, `channels.write`,
-  - `messages.read`, `messages.write`, `members.read`, `members.write`,
-  - `roles.read`, `roles.write`, `automation.read`, `automation.write`
-- `operation`: dynamic operation key (`discordjs.meta.symbols`, `discordpkg.meta.symbols`, `discordjs.<kind>.<symbol>`, or `discordpkg.<packageAlias>.<kind>.<symbol>`)
+- `method`: optional override (`automation.read` or `automation.write`)
+- `operation`: one of
+  - `discord.meta.packages`
+  - `discord.meta.symbols`
+  - `discord.meta.preflight`
+  - `discord.exec.invoke`
+  - `discord.exec.batch`
 - `params` or `args`
 
-- Discovery operation `discordjs.meta.symbols` is validated under `automation.read`.
-- Discovery operation `discordpkg.meta.symbols` is validated under `automation.read`.
-- Invocation operations `discordjs.<kind>.<symbol>` are validated under `automation.write`.
-- Invocation operations `discordpkg.<packageAlias>.<kind>.<symbol>` are validated under `automation.write`.
-
-Static operation keys (`get_discordjs_symbols`, `invoke_discordjs_symbol`) are removed and now return validation errors.
-
-Runtime kind behavior:
-- Dynamic `enum` symbols are discovered directly from Discord.js runtime exports.
-- `class`, `function`, `enum`, `interface`, `type`, and `variable` are all discovered.
-- `interface`, `type`, `namespace`, and `variable` can be sourced from package declaration files (`.d.ts`) when not present in runtime exports.
+Runtime symbol coverage:
+- `class`, `function`, `enum`, `interface`, `type`, and `variable` are discovered.
+- `interface`, `type`, `namespace`, and `variable` can be sourced from package declaration files (`.d.ts`) when missing at runtime.
+- `discord.meta.symbols` can include an operational matrix per symbol for preflight/execution readiness.
 
 ## Branch Model
 
@@ -170,111 +165,119 @@ The MCP JSON-RPC contract on `POST /` is unchanged (`initialize`, `tools/list`, 
 
 ## Usage Examples
 
-### 1) Discover Symbols
+### 1) List Runtime Packages
 
 ```json
 {
   "mode": "bot",
   "identityId": "default-bot",
   "method": "automation.read",
-  "operation": "discordjs.meta.symbols",
+  "operation": "discord.meta.packages",
   "params": {
-    "kinds": ["function"],
-    "query": "TextChannel#send",
-    "page": 1,
-    "pageSize": 20,
-    "includeKindCounts": true
+    "packages": ["discordjs", "discordjs_voice"]
   }
 }
 ```
 
-### 1b) Discover Symbols Across Runtime Packages
+### 2) Discover Symbols + Operational Matrix
 
 ```json
 {
   "mode": "bot",
   "identityId": "default-bot",
   "method": "automation.read",
-  "operation": "discordpkg.meta.symbols",
+  "operation": "discord.meta.symbols",
   "params": {
-    "packages": ["discordjs", "discordjs_voice"],
+    "packageAlias": "discordjs",
     "kinds": ["class", "function", "enum", "interface", "type", "variable"],
-    "query": "Voice",
+    "query": "TextChannel#send",
     "includeAliases": true,
-    "includeKindCounts": true
+    "includeKindCounts": true,
+    "includeOperationalMatrix": true
   }
 }
 ```
 
-### 2) Dynamic Invocation (`TextChannel#send`)
+### 3) Preflight Before Execution
 
 ```json
 {
   "mode": "bot",
   "identityId": "default-bot",
-  "method": "automation.write",
-  "operation": "discordjs.function.TextChannel%23send",
+  "method": "automation.read",
+  "operation": "discord.meta.preflight",
   "params": {
-    "args": ["hello from dynamic router"],
+    "packageAlias": "discordjs",
+    "symbol": "TextChannel#send",
+    "kind": "function",
     "target": "channel",
     "context": {
-      "guildId": "123456789012345678",
       "channelId": "123456789012345678"
     },
-    "allowWrite": true,
     "policyMode": "strict"
   }
 }
 ```
 
-### 2b) Package Invocation (`@discordjs/voice`)
+### 4) Execute Invocation (Safe by Default)
 
 ```json
 {
   "mode": "bot",
   "identityId": "default-bot",
   "method": "automation.write",
-  "operation": "discordpkg.discordjs_voice.function.joinVoiceChannel",
+  "operation": "discord.exec.invoke",
   "params": {
-    "args": [
-      {
-        "channelId": "123456789012345678",
-        "guildId": "123456789012345678",
-        "adapterCreator": "$ref:guild.voiceAdapterCreator"
-      }
-    ],
+    "packageAlias": "discordjs",
+    "symbol": "TextChannel#send",
+    "kind": "function",
+    "args": ["hello from invoke"],
+    "target": "channel",
+    "context": {
+      "channelId": "123456789012345678"
+    },
+    "dryRun": false,
     "allowWrite": true
   }
 }
 ```
 
-### 3) Dry Run Before Executing
+### 5) Batch Invocation
 
 ```json
 {
   "mode": "bot",
   "identityId": "default-bot",
   "method": "automation.write",
-  "operation": "discordjs.function.TextChannel%23send",
+  "operation": "discord.exec.batch",
   "params": {
+    "mode": "best_effort",
     "dryRun": true,
-    "target": "channel",
-    "context": {
-      "channelId": "123456789012345678"
-    }
+    "items": [
+      {
+        "packageAlias": "discordjs",
+        "symbol": "TextChannel#send",
+        "kind": "function",
+        "target": "channel",
+        "context": {
+          "channelId": "123456789012345678"
+        },
+        "args": ["hello from batch"]
+      }
+    ]
   }
 }
 ```
 
 ## Notes on Operation Counts
 
-If you expect thousands of operations in the MCP registry, this is by design:
+If you expect thousands of discovered symbols, this is by design:
 
 - The MCP registry exposes a small, fixed operation surface.
-- Discovery is exposed through `discordjs.meta.symbols`.
-- Package discovery is exposed through `discordpkg.meta.symbols`.
-- Discord.js breadth is exposed through dynamic symbol routing (`discordjs.<kind>.<symbol>`).
-- Multi-package breadth is exposed through `discordpkg.<packageAlias>.<kind>.<symbol>`.
+- Package discovery is exposed through `discord.meta.packages`.
+- Symbol discovery is exposed through `discord.meta.symbols`.
+- Execution preflight is exposed through `discord.meta.preflight`.
+- Single and batch execution are exposed through `discord.exec.invoke` and `discord.exec.batch`.
 - Runtime discovery includes `enum` exports (for example `ChannelType`, `ActivityType`).
 - Startup logs print loaded package aliases and versions.
 

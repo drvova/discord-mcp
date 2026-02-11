@@ -13,23 +13,30 @@ import { Logger } from "./core/Logger.js";
 import { OAuthManager } from "./core/OAuthManager.js";
 import { writeAuditEvent } from "./gateway/audit-log.js";
 import {
-    getDiscordJsSymbolsCatalog,
     getDiscordPackageSymbolsCatalog,
     listLoadedDiscordRuntimePackages,
+    type DiscordJsSymbol,
 } from "./gateway/discordjs-symbol-catalog.js";
 import { createHttpApp } from "./http-app.js";
 import {
-    DYNAMIC_DISCORDJS_OPERATION_PREFIX,
-    DYNAMIC_DISCORDPKG_OPERATION_PREFIX,
+    DISCORD_EXEC_BATCH_OPERATION,
+    DISCORD_EXEC_INVOKE_OPERATION,
+    DISCORD_META_PACKAGES_OPERATION,
+    DISCORD_META_PREFLIGHT_OPERATION,
+    DISCORD_META_SYMBOLS_OPERATION,
     DOMAIN_METHODS,
-    type DomainMethod,
-    type DiscordOperation,
-    isDiscordJsDiscoveryOperation,
-    isDiscordJsInvocationOperation,
-    isDiscordPkgDiscoveryOperation,
-    isDiscordPkgInvocationOperation,
+    getDomainMethodForOperation,
+    isDiscordExecBatchOperation,
+    isDiscordExecInvokeOperation,
+    isDiscordMetaPackagesOperation,
+    isDiscordMetaPreflightOperation,
+    isDiscordMetaSymbolsOperation,
+    isDiscordWriteOperation,
     resolveDomainMethod,
+    resolveOperation,
     resolveOperationForMethod,
+    type DiscordOperation,
+    type DomainMethod,
 } from "./gateway/domain-registry.js";
 import { IdentityWorkerPool } from "./gateway/identity-worker-pool.js";
 import {
@@ -62,11 +69,43 @@ const identityStore = new LocalEncryptedIdentityStore();
 const identityWorkerPool = new IdentityWorkerPool();
 const logger = Logger.getInstance().child("server");
 
+type RiskTier = "low" | "medium" | "high";
+
+type ParsedDiscordManageCall = {
+    mode: IdentityMode;
+    identityId: string;
+    method: DomainMethod;
+    operation: DiscordOperation;
+    params: Record<string, unknown>;
+    riskTier: RiskTier;
+};
+
+type GenericSchema = {
+    parse: (value: unknown) => unknown;
+    shape?:
+        | Record<string, unknown>
+        | (() => Record<string, unknown>);
+    _def?: {
+        shape?: () => Record<string, unknown>;
+    };
+};
+
+const OPERATION_SCHEMA_BY_NAME: Record<string, GenericSchema> = {
+    [DISCORD_META_PACKAGES_OPERATION]:
+        schemas.DiscordMetaPackagesSchema as unknown as GenericSchema,
+    [DISCORD_META_SYMBOLS_OPERATION]:
+        schemas.DiscordMetaSymbolsSchema as unknown as GenericSchema,
+    [DISCORD_META_PREFLIGHT_OPERATION]:
+        schemas.DiscordMetaPreflightSchema as unknown as GenericSchema,
+    [DISCORD_EXEC_INVOKE_OPERATION]:
+        schemas.DiscordExecInvokeSchema as unknown as GenericSchema,
+    [DISCORD_EXEC_BATCH_OPERATION]:
+        schemas.DiscordExecBatchSchema as unknown as GenericSchema,
+};
+
 function getOAuthManager(): OAuthManager {
     if (!oauthManager) {
-        throw new Error(
-            "OAuth manager is not initialized.",
-        );
+        throw new Error("OAuth manager is not initialized.");
     }
     return oauthManager;
 }
@@ -86,232 +125,19 @@ function parseBooleanQuery(value: string | null): boolean | undefined {
     return undefined;
 }
 
-// Initialize Discord service
 async function initializeDiscord() {
     discordController = new DiscordController();
     await discordController.initialize();
     discordService = discordController.getDiscordService();
 }
 
-type RiskTier = "low" | "medium" | "high";
-
-type ParsedDiscordManageCall = {
-    mode: IdentityMode;
-    identityId: string;
-    method: DomainMethod;
-    operation: DiscordOperation;
-    params: Record<string, unknown>;
-    riskTier: RiskTier;
-};
-
-type DiscordJsInvocationKind =
-    | "class"
-    | "enum"
-    | "interface"
-    | "function"
-    | "type"
-    | "const"
-    | "variable"
-    | "event"
-    | "namespace"
-    | "external";
-
-type DiscordJsDynamicOperationKind = DiscordJsInvocationKind | "meta";
-
-type DynamicDiscordOperationSource = "discordjs" | "discordpkg";
-
-type ParsedDynamicDiscordOperation = {
-    source: DynamicDiscordOperationSource;
-    packageAlias: string;
-    kind: DiscordJsDynamicOperationKind;
-    symbol: string;
-};
-
-function parseDynamicDiscordOperation(
-    operation: string,
-): ParsedDynamicDiscordOperation | null {
-    const normalized = operation.trim();
-    const lower = normalized.toLowerCase();
-    if (
-        !lower.startsWith(DYNAMIC_DISCORDJS_OPERATION_PREFIX) &&
-        !lower.startsWith(DYNAMIC_DISCORDPKG_OPERATION_PREFIX)
-    ) {
-        return null;
+function getSchemaForOperation(operation: DiscordOperation): GenericSchema {
+    const schema = OPERATION_SCHEMA_BY_NAME[operation];
+    if (!schema) {
+        throw new Error(`No schema is registered for operation '${operation}'.`);
     }
-
-    let source: DynamicDiscordOperationSource;
-    let packageAlias: string;
-    let rawKind: string;
-    let encodedSymbol: string;
-
-    if (lower.startsWith(DYNAMIC_DISCORDJS_OPERATION_PREFIX)) {
-        source = "discordjs";
-        packageAlias = "discordjs";
-        const withoutPrefix = normalized.slice(
-            DYNAMIC_DISCORDJS_OPERATION_PREFIX.length,
-        );
-        const separatorIndex = withoutPrefix.indexOf(".");
-        if (separatorIndex <= 0) {
-            throw new Error(
-                `Dynamic discord.js operation '${operation}' must match 'discordjs.<kind>.<symbol>'.`,
-            );
-        }
-        rawKind = withoutPrefix.slice(0, separatorIndex).toLowerCase();
-        encodedSymbol = withoutPrefix.slice(separatorIndex + 1);
-    } else {
-        source = "discordpkg";
-        const withoutPrefix = normalized.slice(
-            DYNAMIC_DISCORDPKG_OPERATION_PREFIX.length,
-        );
-        const packageSeparatorIndex = withoutPrefix.indexOf(".");
-        if (packageSeparatorIndex <= 0) {
-            throw new Error(
-                `Dynamic Discord package operation '${operation}' must match 'discordpkg.<packageAlias>.<kind>.<symbol>'.`,
-            );
-        }
-
-        packageAlias = withoutPrefix
-            .slice(0, packageSeparatorIndex)
-            .trim()
-            .toLowerCase();
-        if (!packageAlias || packageAlias === "meta") {
-            throw new Error(
-                `Dynamic Discord package operation '${operation}' must use a non-'meta' package alias.`,
-            );
-        }
-
-        const afterPackageAlias = withoutPrefix.slice(packageSeparatorIndex + 1);
-        const kindSeparatorIndex = afterPackageAlias.indexOf(".");
-        if (kindSeparatorIndex <= 0) {
-            throw new Error(
-                `Dynamic Discord package operation '${operation}' must include both kind and symbol segments.`,
-            );
-        }
-
-        rawKind = afterPackageAlias.slice(0, kindSeparatorIndex).toLowerCase();
-        encodedSymbol = afterPackageAlias.slice(kindSeparatorIndex + 1);
-    }
-
-    if (!encodedSymbol.trim()) {
-        throw new Error(
-            `Dynamic operation '${operation}' is missing symbol name after kind.`,
-        );
-    }
-
-    const allowedKinds: DiscordJsDynamicOperationKind[] = [
-        "meta",
-        "class",
-        "enum",
-        "interface",
-        "function",
-        "type",
-        "const",
-        "variable",
-        "event",
-        "namespace",
-        "external",
-    ];
-
-    if (!allowedKinds.includes(rawKind as DiscordJsDynamicOperationKind)) {
-        throw new Error(
-            `Unsupported dynamic kind '${rawKind}'. Supported kinds: ${allowedKinds.join(", ")}.`,
-        );
-    }
-
-    let symbol = encodedSymbol;
-    try {
-        symbol = decodeURIComponent(encodedSymbol);
-    } catch {
-        symbol = encodedSymbol;
-    }
-
-    return {
-        source,
-        packageAlias,
-        kind: rawKind as DiscordJsDynamicOperationKind,
-        symbol,
-    };
+    return schema;
 }
-
-function coerceDynamicDiscordJsArgs(rawArgs: unknown): Record<string, unknown> {
-    if (Array.isArray(rawArgs)) {
-        return {
-            args: rawArgs,
-        };
-    }
-
-    if (rawArgs && typeof rawArgs === "object") {
-        return rawArgs as Record<string, unknown>;
-    }
-
-    throw new Error(
-        "Dynamic Discord operations require 'params' or 'args' as an object or array.",
-    );
-}
-
-// Complete tools list for both stdio and HTTP
-const getAllTools = () => [
-    {
-        name: "discord_manage",
-        description:
-            "Comprehensive Discord server management tool - dynamic discord.js operation router",
-        inputSchema: {
-            type: "object",
-            properties: {
-                mode: {
-                    type: "string",
-                    enum: ["bot", "user"],
-                    description:
-                        "Execution identity mode. Defaults to 'bot' when omitted.",
-                },
-                identityId: {
-                    type: "string",
-                    description:
-                        "Identity record ID (for example: default-bot or default-user).",
-                },
-                method: {
-                    type: "string",
-                    enum: DOMAIN_METHODS,
-                    description: "Domain method (read/write split API surface).",
-                },
-                operation: {
-                    type: "string",
-                    description:
-                        "Operation key. Discovery: discordjs.meta.symbols or discordpkg.meta.symbols (method automation.read). Invocation: discordjs.<kind>.<symbol> or discordpkg.<packageAlias>.<kind>.<symbol> (method automation.write, for example: discordjs.function.channelMention or discordpkg.discordjs_voice.function.joinVoiceChannel).",
-                },
-                params: {
-                    type: "object",
-                    description:
-                        "Named parameters object (recommended for lower cognitive load).",
-                    additionalProperties: true,
-                },
-                args: {
-                    type: ["array", "object"],
-                    description:
-                        "Ordered args array (preferred) or keyed args object.",
-                    additionalProperties: true,
-                },
-                context: {
-                    type: "object",
-                    description: "Optional request metadata for tracing/idempotency.",
-                    additionalProperties: true,
-                },
-            },
-            required: ["method", "operation"],
-            additionalProperties: false,
-        },
-    },
-];
-
-type GenericSchema = {
-    parse: (value: unknown) => unknown;
-    shape?:
-        | Record<string, unknown>
-        | (() => Record<string, unknown>);
-    _def?: {
-        shape?: () => Record<string, unknown>;
-    };
-};
 
 function getSchemaKeyOrder(schema: GenericSchema): string[] {
     const directShape =
@@ -330,13 +156,6 @@ function getSchemaKeyOrder(schema: GenericSchema): string[] {
 
     return [];
 }
-
-const DISCOVERY_PARAM_KEYS = getSchemaKeyOrder(
-    schemas.GetDiscordjsSymbolsSchema as unknown as GenericSchema,
-);
-const INVOCATION_PARAM_KEYS = getSchemaKeyOrder(
-    schemas.InvokeDiscordjsSymbolSchema as unknown as GenericSchema,
-);
 
 function coerceArgsToParams(
     rawArgs: unknown,
@@ -366,21 +185,26 @@ function coerceArgsToParams(
     }
 
     throw new Error(
-        "discord_manage requires 'args' as an array (preferred) or keyed object.",
+        `discord_manage operation '${operationLabel}' requires 'params' or 'args' as an object or array.`,
     );
+}
+
+function coerceOperationArgs(
+    rawArgs: unknown,
+    operation: DiscordOperation,
+): Record<string, unknown> {
+    const schema = getSchemaForOperation(operation);
+    const paramKeys = getSchemaKeyOrder(schema);
+    return coerceArgsToParams(rawArgs, paramKeys, operation);
 }
 
 function normalizeParamsBySchemaOrder(
     operation: DiscordOperation,
     params: Record<string, unknown>,
 ): Record<string, unknown> {
+    const schemaKeys = getSchemaKeyOrder(getSchemaForOperation(operation));
     const ordered: Record<string, unknown> = {};
     const knownKeys = new Set<string>();
-    const schemaKeys =
-        isDiscordJsDiscoveryOperation(operation) ||
-        isDiscordPkgDiscoveryOperation(operation)
-        ? DISCOVERY_PARAM_KEYS
-        : INVOCATION_PARAM_KEYS;
 
     for (const key of schemaKeys) {
         if (key in params) {
@@ -398,43 +222,39 @@ function normalizeParamsBySchemaOrder(
     return ordered;
 }
 
-function coerceDiscoveryDiscordArgs(
-    rawArgs: unknown,
-    operationLabel: string,
-): Record<string, unknown> {
-    return coerceArgsToParams(
-        rawArgs,
-        DISCOVERY_PARAM_KEYS,
-        operationLabel,
-    );
-}
-
-function inferRiskTier(operation: DiscordOperation): RiskTier {
-    if (
-        isDiscordJsInvocationOperation(operation) ||
-        isDiscordPkgInvocationOperation(operation)
-    ) {
-        return "high";
+function inferRiskTier(
+    operation: DiscordOperation,
+    params: Record<string, unknown>,
+): RiskTier {
+    if (!isDiscordWriteOperation(operation)) {
+        return "low";
     }
 
-    return "low";
+    if (isDiscordExecInvokeOperation(operation)) {
+        const dryRun = params.dryRun;
+        return dryRun === false ? "high" : "medium";
+    }
+
+    if (isDiscordExecBatchOperation(operation)) {
+        const dryRun = params.dryRun;
+        return dryRun === false ? "high" : "medium";
+    }
+
+    return "high";
 }
 
 function enforceOperationPolicy(
     mode: IdentityMode,
     operation: DiscordOperation,
+    params: Record<string, unknown>,
 ): RiskTier {
-    if (
-        mode === "user" &&
-        (isDiscordJsInvocationOperation(operation) ||
-            isDiscordPkgInvocationOperation(operation))
-    ) {
+    if (mode === "user" && isDiscordWriteOperation(operation)) {
         throw new Error(
             `Operation '${operation}' is blocked for user mode. Use bot mode for this operation.`,
         );
     }
 
-    const riskTier = inferRiskTier(operation);
+    const riskTier = inferRiskTier(operation, params);
     const blockHighRisk = process.env.DISCORD_MCP_BLOCK_HIGH_RISK === "true";
     if (riskTier === "high" && blockHighRisk) {
         throw new Error(
@@ -486,7 +306,7 @@ function parseDiscordManageCall(
 
     if (!rawArgs || typeof rawArgs !== "object" || Array.isArray(rawArgs)) {
         throw new Error(
-            "discord_manage arguments must be an object with 'mode', 'identityId', 'method', 'operation', and 'params' or 'args'.",
+            "discord_manage arguments must be an object with 'mode', 'identityId', 'operation', and 'params' or 'args'.",
         );
     }
 
@@ -504,10 +324,6 @@ function parseDiscordManageCall(
         throw new Error("discord_manage requires 'mode' to be either 'bot' or 'user'.");
     }
 
-    if (typeof rawMethod !== "string") {
-        throw new Error("discord_manage requires 'method' as a string.");
-    }
-
     if (typeof rawOperation !== "string") {
         throw new Error("discord_manage requires 'operation' as a string.");
     }
@@ -518,83 +334,308 @@ function parseDiscordManageCall(
         );
     }
 
-    const method = resolveDomainMethod(rawMethod);
-    const operation = resolveOperationForMethod(method, rawOperation);
-    const isDiscoveryOperation =
-        isDiscordJsDiscoveryOperation(operation) ||
-        isDiscordPkgDiscoveryOperation(operation);
-    const isInvocationOperation =
-        isDiscordJsInvocationOperation(operation) ||
-        isDiscordPkgInvocationOperation(operation);
+    const operation = resolveOperation(rawOperation);
 
-    if (!isDiscoveryOperation && !isInvocationOperation) {
-        throw new Error(`Unsupported dynamic operation '${operation}'.`);
-    }
-
-    let params: Record<string, unknown>;
-    if (isDiscoveryOperation) {
-        params = normalizeParamsBySchemaOrder(
-            operation,
-            rawParams !== undefined
-                ? coerceDiscoveryDiscordArgs(rawParams, operation)
-                : coerceDiscoveryDiscordArgs(rawMethodArgs, operation),
-        );
+    let method: DomainMethod;
+    if (typeof rawMethod === "string" && rawMethod.trim()) {
+        method = resolveDomainMethod(rawMethod);
+        resolveOperationForMethod(method, operation);
     } else {
-        const dynamicOperation = parseDynamicDiscordOperation(operation);
-        if (!dynamicOperation) {
-            throw new Error(
-                `Operation '${operation}' is not a valid dynamic Discord operation.`,
-            );
-        }
-
-        const baseParams =
-            rawParams !== undefined
-                ? coerceDynamicDiscordJsArgs(rawParams)
-                : coerceDynamicDiscordJsArgs(rawMethodArgs);
-
-        if (dynamicOperation.kind === "meta") {
-            throw new Error(
-                `Operation '${operation}' cannot use kind 'meta' for invocation.`,
-            );
-        }
-
-        const explicitPackageAlias = baseParams.packageAlias;
-        if (
-            typeof explicitPackageAlias === "string" &&
-            explicitPackageAlias.trim() &&
-            explicitPackageAlias.trim().toLowerCase() !==
-                dynamicOperation.packageAlias
-        ) {
-            throw new Error(
-                `Invocation params packageAlias '${explicitPackageAlias}' does not match operation package alias '${dynamicOperation.packageAlias}'.`,
-            );
-        }
-
-        const dynamicInvokeParams: Record<string, unknown> = {
-            ...baseParams,
-            packageAlias: dynamicOperation.packageAlias,
-            symbol: dynamicOperation.symbol,
-            kind: dynamicOperation.kind,
-        };
-
-        const explicitInvoke = dynamicInvokeParams.invoke;
-        if (explicitInvoke === undefined) {
-            dynamicInvokeParams.invoke = dynamicOperation.kind === "function";
-        }
-
-        params = normalizeParamsBySchemaOrder(operation, dynamicInvokeParams);
+        method = getDomainMethodForOperation(operation);
     }
 
-    const riskTier = enforceOperationPolicy(mode, operation);
+    const baseParams =
+        rawParams !== undefined
+            ? coerceOperationArgs(rawParams, operation)
+            : coerceOperationArgs(rawMethodArgs, operation);
+    const normalizedParams = normalizeParamsBySchemaOrder(operation, baseParams);
+    const parsedParams = getSchemaForOperation(operation).parse(
+        normalizedParams,
+    ) as Record<string, unknown>;
+
+    const riskTier = enforceOperationPolicy(mode, operation, parsedParams);
 
     return {
         mode,
         identityId,
         method,
         operation,
-        params,
+        params: parsedParams,
         riskTier,
     };
+}
+
+function parseJsonMaybe(payload: string): unknown {
+    try {
+        return JSON.parse(payload) as unknown;
+    } catch {
+        return payload;
+    }
+}
+
+function toPolicyRiskTier(behaviorClass: string): RiskTier {
+    switch (behaviorClass) {
+        case "dangerous":
+        case "admin":
+            return "high";
+        case "write":
+            return "medium";
+        default:
+            return "low";
+    }
+}
+
+function inferInvocationTargetMode(symbol: DiscordJsSymbol): string {
+    if (symbol.name.includes("#")) {
+        return "instance";
+    }
+    if (symbol.name.includes(".")) {
+        return "static";
+    }
+    return "export";
+}
+
+function inferDefaultStatus(symbol: DiscordJsSymbol): string {
+    if (!symbol.invokable && symbol.origin === "types") {
+        return "types_only";
+    }
+
+    if (symbol.kind !== "function" || !symbol.invokable) {
+        return "metadata_only";
+    }
+
+    if (
+        symbol.behaviorClass === "write" ||
+        symbol.behaviorClass === "admin" ||
+        symbol.behaviorClass === "dangerous"
+    ) {
+        return "blocked_by_policy_default";
+    }
+
+    return "ready";
+}
+
+function toOperationalMatrix(symbol: DiscordJsSymbol): Record<string, unknown> {
+    const requiresAllowWrite =
+        symbol.behaviorClass === "write" ||
+        symbol.behaviorClass === "admin" ||
+        symbol.behaviorClass === "dangerous";
+
+    return {
+        identity: {
+            packageAlias: symbol.packageAlias,
+            packageName: symbol.packageName,
+            moduleVersion: symbol.moduleVersion,
+            name: symbol.name,
+            kind: symbol.kind,
+            origin: symbol.origin,
+        },
+        callability: {
+            invokable: symbol.invokable,
+            invocationMode: inferInvocationTargetMode(symbol),
+            hasRuntimeBinding: symbol.origin === "runtime",
+        },
+        operation: {
+            operationClass: symbol.behaviorClass,
+            riskTier: toPolicyRiskTier(symbol.behaviorClass),
+            policyDefault: "strict",
+        },
+        requirements: {
+            requiresAllowWrite,
+            requiredTarget:
+                symbol.kind === "function" ? inferInvocationTargetMode(symbol) : "none",
+            requiredContext:
+                symbol.kind === "function" && symbol.name.includes("#")
+                    ? ["target/context"]
+                    : [],
+        },
+        executionHints: {
+            suggestedOperation: symbol.packageOperationKey,
+            docsPath: symbol.docsPath,
+            aliasOf: symbol.aliasOf,
+        },
+        status: inferDefaultStatus(symbol),
+    };
+}
+
+function getAllTools() {
+    return [
+        {
+            name: "discord_manage",
+            description:
+                "Discord runtime control surface. Operations: discord.meta.packages, discord.meta.symbols, discord.meta.preflight, discord.exec.invoke, discord.exec.batch",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    mode: {
+                        type: "string",
+                        enum: ["bot", "user"],
+                        description:
+                            "Execution identity mode. Defaults to 'bot' when omitted.",
+                    },
+                    identityId: {
+                        type: "string",
+                        description:
+                            "Identity record ID (for example: default-bot or default-user).",
+                    },
+                    method: {
+                        type: "string",
+                        enum: DOMAIN_METHODS,
+                        description:
+                            "Optional method override. If provided, operation/method compatibility is validated.",
+                    },
+                    operation: {
+                        type: "string",
+                        enum: [
+                            DISCORD_META_PACKAGES_OPERATION,
+                            DISCORD_META_SYMBOLS_OPERATION,
+                            DISCORD_META_PREFLIGHT_OPERATION,
+                            DISCORD_EXEC_INVOKE_OPERATION,
+                            DISCORD_EXEC_BATCH_OPERATION,
+                        ],
+                        description:
+                            "Operation key from the unified Discord runtime protocol.",
+                    },
+                    params: {
+                        type: "object",
+                        description: "Named operation parameters (recommended).",
+                        additionalProperties: true,
+                    },
+                    args: {
+                        type: ["array", "object"],
+                        description:
+                            "Ordered args array (mapped to schema order) or keyed args object.",
+                        additionalProperties: true,
+                    },
+                    context: {
+                        type: "object",
+                        description: "Optional request metadata for tracing/idempotency.",
+                        additionalProperties: true,
+                    },
+                },
+                required: ["operation"],
+                additionalProperties: false,
+            },
+        },
+    ];
+}
+
+async function executeBatchOperation(
+    params: Record<string, unknown>,
+): Promise<string> {
+    const parsed = schemas.DiscordExecBatchSchema.parse(params);
+    const mode = parsed.mode ?? "best_effort";
+    const defaultDryRun = parsed.dryRun ?? true;
+    const normalizedItems = parsed.items.map((item) => ({
+        ...item,
+        invoke: item.invoke ?? true,
+        dryRun: item.dryRun ?? defaultDryRun,
+        allowWrite: item.allowWrite ?? false,
+    }));
+
+    if (mode === "all_or_none" && normalizedItems.some((item) => item.dryRun === false)) {
+        const preflights = [] as Array<Record<string, unknown>>;
+        let blocked = false;
+
+        for (let index = 0; index < normalizedItems.length; index += 1) {
+            const item = normalizedItems[index];
+            const preflightRaw = await discordService.invokeDiscordJsSymbol({
+                packageAlias: item.packageAlias,
+                symbol: item.symbol,
+                kind: item.kind,
+                invoke: item.invoke,
+                dryRun: true,
+                allowWrite: item.allowWrite,
+                policyMode: item.policyMode,
+                args: item.args,
+                target: item.target,
+                context: item.context,
+            });
+            const preflightParsed = parseJsonMaybe(preflightRaw);
+            const canExecute =
+                typeof preflightParsed === "object" &&
+                preflightParsed !== null &&
+                (preflightParsed as Record<string, unknown>).callable === true &&
+                (preflightParsed as Record<string, unknown>).policyDecision === "allow";
+
+            if (!canExecute) {
+                blocked = true;
+            }
+
+            preflights.push({
+                index,
+                canExecute,
+                preflight: preflightParsed,
+            });
+        }
+
+        if (blocked) {
+            return JSON.stringify(
+                {
+                    mode,
+                    executed: false,
+                    reason: "Preflight failed for one or more batch items.",
+                    preflights,
+                },
+                null,
+                2,
+            );
+        }
+    }
+
+    const results: Array<Record<string, unknown>> = [];
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (let index = 0; index < normalizedItems.length; index += 1) {
+        const item = normalizedItems[index];
+        try {
+            const raw = await discordService.invokeDiscordJsSymbol({
+                packageAlias: item.packageAlias,
+                symbol: item.symbol,
+                kind: item.kind,
+                invoke: item.invoke,
+                dryRun: item.dryRun,
+                allowWrite: item.allowWrite,
+                policyMode: item.policyMode,
+                args: item.args,
+                target: item.target,
+                context: item.context,
+            });
+
+            results.push({
+                index,
+                status: "success",
+                dryRun: item.dryRun,
+                result: parseJsonMaybe(raw),
+            });
+            successCount += 1;
+        } catch (error) {
+            results.push({
+                index,
+                status: "error",
+                dryRun: item.dryRun,
+                error: error instanceof Error ? error.message : String(error),
+            });
+            errorCount += 1;
+
+            if (mode === "all_or_none") {
+                break;
+            }
+        }
+    }
+
+    return JSON.stringify(
+        {
+            mode,
+            total: normalizedItems.length,
+            successCount,
+            errorCount,
+            results,
+        },
+        null,
+        2,
+    );
 }
 
 async function executeDiscordManageOperation(
@@ -603,11 +644,9 @@ async function executeDiscordManageOperation(
     const { operation, params } = parsedCall;
     const startedAt = Date.now();
     let status: "success" | "error" = "success";
-    const operationType =
-        isDiscordJsDiscoveryOperation(operation) ||
-        isDiscordPkgDiscoveryOperation(operation)
-            ? "discovery"
-            : "invocation";
+    const operationType = isDiscordWriteOperation(operation)
+        ? "execution"
+        : "metadata";
 
     try {
         return await withSpan(
@@ -620,20 +659,51 @@ async function executeDiscordManageOperation(
                 "discord.identity_id": parsedCall.identityId,
             },
             async () => {
-                if (isDiscordJsDiscoveryOperation(operation)) {
-                    const parsed = schemas.GetDiscordjsSymbolsSchema.parse(params);
-                    const catalog = await getDiscordJsSymbolsCatalog({
-                        kinds: parsed.kinds,
-                        query: parsed.query,
-                        page: parsed.page,
-                        pageSize: parsed.pageSize,
-                        sort: parsed.sort,
-                        includeKindCounts: parsed.includeKindCounts,
-                    });
-                    return JSON.stringify(catalog, null, 2);
+                if (isDiscordMetaPackagesOperation(operation)) {
+                    const parsed = schemas.DiscordMetaPackagesSchema.parse(params);
+                    const allPackages = await listLoadedDiscordRuntimePackages();
+                    const selectors = [
+                        ...(parsed.package ? [parsed.package] : []),
+                        ...(parsed.packages || []),
+                    ];
+                    if (selectors.length === 0) {
+                        return JSON.stringify(
+                            {
+                                package: "discord.packages",
+                                packageCount: allPackages.length,
+                                packages: allPackages,
+                            },
+                            null,
+                            2,
+                        );
+                    }
+
+                    const normalizedSelectors = selectors.map((selector) =>
+                        selector.trim().toLowerCase(),
+                    );
+                    const filteredPackages = allPackages.filter(
+                        (entry) =>
+                            normalizedSelectors.includes(entry.packageAlias) ||
+                            normalizedSelectors.includes(entry.packageName.toLowerCase()),
+                    );
+
+                    return JSON.stringify(
+                        {
+                            package: "discord.packages",
+                            packageCount: filteredPackages.length,
+                            packages: filteredPackages,
+                        },
+                        null,
+                        2,
+                    );
                 }
-                if (isDiscordPkgDiscoveryOperation(operation)) {
-                    const parsed = schemas.GetDiscordjsSymbolsSchema.parse(params);
+
+                if (isDiscordMetaSymbolsOperation(operation)) {
+                    const parsed = schemas.DiscordMetaSymbolsSchema.parse(params);
+                    const packageSelector = parsed.packageAlias || parsed.package;
+                    const includeOperationalMatrix =
+                        parsed.includeOperationalMatrix ?? true;
+
                     const catalog = await getDiscordPackageSymbolsCatalog({
                         kinds: parsed.kinds,
                         query: parsed.query,
@@ -641,30 +711,86 @@ async function executeDiscordManageOperation(
                         pageSize: parsed.pageSize,
                         sort: parsed.sort,
                         includeKindCounts: parsed.includeKindCounts,
-                        package: parsed.package,
+                        package: packageSelector,
                         packages: parsed.packages,
                         includeAliases: parsed.includeAliases,
                     });
-                    return JSON.stringify(catalog, null, 2);
+
+                    const items = includeOperationalMatrix
+                        ? catalog.items.map((item) => ({
+                              ...item,
+                              operationalMatrix: toOperationalMatrix(item),
+                          }))
+                        : catalog.items;
+
+                    return JSON.stringify(
+                        {
+                            ...catalog,
+                            items,
+                        },
+                        null,
+                        2,
+                    );
                 }
 
-                if (
-                    isDiscordJsInvocationOperation(operation) ||
-                    isDiscordPkgInvocationOperation(operation)
-                ) {
-                    const parsed = schemas.InvokeDiscordjsSymbolSchema.parse(params);
-                    return await discordService.invokeDiscordJsSymbol({
+                if (isDiscordMetaPreflightOperation(operation)) {
+                    const parsed = schemas.DiscordMetaPreflightSchema.parse(params);
+                    const preflightRaw = await discordService.invokeDiscordJsSymbol({
                         packageAlias: parsed.packageAlias,
                         symbol: parsed.symbol,
                         kind: parsed.kind,
-                        invoke: parsed.invoke,
-                        dryRun: parsed.dryRun,
-                        allowWrite: parsed.allowWrite,
+                        invoke: true,
+                        dryRun: true,
+                        allowWrite: parsed.allowWrite ?? false,
                         policyMode: parsed.policyMode,
                         args: parsed.args,
                         target: parsed.target,
                         context: parsed.context,
                     });
+                    const preflightResult = parseJsonMaybe(preflightRaw);
+                    if (typeof preflightResult === "object" && preflightResult !== null) {
+                        const record = preflightResult as Record<string, unknown>;
+                        const canExecute =
+                            record.callable === true &&
+                            record.policyDecision === "allow";
+                        return JSON.stringify(
+                            {
+                                ...record,
+                                canExecute,
+                            },
+                            null,
+                            2,
+                        );
+                    }
+
+                    return JSON.stringify(
+                        {
+                            canExecute: false,
+                            result: preflightResult,
+                        },
+                        null,
+                        2,
+                    );
+                }
+
+                if (isDiscordExecInvokeOperation(operation)) {
+                    const parsed = schemas.DiscordExecInvokeSchema.parse(params);
+                    return await discordService.invokeDiscordJsSymbol({
+                        packageAlias: parsed.packageAlias,
+                        symbol: parsed.symbol,
+                        kind: parsed.kind,
+                        invoke: parsed.invoke ?? true,
+                        dryRun: parsed.dryRun ?? true,
+                        allowWrite: parsed.allowWrite ?? false,
+                        policyMode: parsed.policyMode,
+                        args: parsed.args,
+                        target: parsed.target,
+                        context: parsed.context,
+                    });
+                }
+
+                if (isDiscordExecBatchOperation(operation)) {
+                    return await executeBatchOperation(params);
                 }
 
                 throw new Error(`Unsupported operation: ${operation}`);
@@ -689,7 +815,6 @@ async function executeDiscordManageOperation(
     }
 }
 
-// Tool definitions
 server.setRequestHandler(ListToolsRequestSchema, async () => {
     const startedAt = Date.now();
     let status: "success" | "error" = "success";
@@ -716,7 +841,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     }
 });
 
-// Tool request handler
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const startedAt = Date.now();
     let status: "success" | "error" = "success";
@@ -798,18 +922,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 });
 
-// Main function
 async function main() {
     try {
-        // Initialize Discord first
         await initializeDiscord();
         identityStore.ensureDefaultsFromEnv();
         const runtimePackages = await listLoadedDiscordRuntimePackages();
         logger.info(
-            `Dynamic runtime packages loaded: ${runtimePackages.map((entry) => `${entry.packageAlias}@${entry.version}`).join(", ")}`,
+            `Runtime packages loaded: ${runtimePackages.map((entry) => `${entry.packageAlias}@${entry.version}`).join(", ")}`,
         );
 
-        // Check if we should use HTTP transport
         const useHttp = process.env.MCP_HTTP_PORT || process.env.PORT;
         const config = discordController.getConfigManager().getConfig();
         const oauthClientId =
@@ -831,15 +952,11 @@ async function main() {
                 logger.info(
                     `Discord bot install URL (Administrator): ${startupInvite.authorizeUrl}`,
                 );
-                logger.info(
-                    `OAuth callback URI: ${config.oauth.redirectUri}`,
-                );
+                logger.info(`OAuth callback URI: ${config.oauth.redirectUri}`);
             } catch (error) {
                 const message =
                     error instanceof Error ? error.message : String(error);
-                logger.warn(
-                    `OAuth startup install link unavailable: ${message}`,
-                );
+                logger.warn(`OAuth startup install link unavailable: ${message}`);
             }
 
             if (missingOAuthConfig.length > 0) {
@@ -873,19 +990,14 @@ async function main() {
             });
             serve({ fetch: app.fetch, port });
 
-            logger.info(
-                `Discord MCP server running on HTTP port ${port}`,
-            );
+            logger.info(`Discord MCP server running on HTTP port ${port}`);
             logger.info(`SSE endpoint: http://localhost:${port}/sse`);
             logger.info(`Health check: http://localhost:${port}/health`);
-            logger.info(
-                `OAuth start: http://localhost:${port}/oauth/discord/start`,
-            );
+            logger.info(`OAuth start: http://localhost:${port}/oauth/discord/start`);
             logger.info(
                 `OAuth callback: http://localhost:${port}/oauth/discord/callback`,
             );
         } else {
-            // Start stdio server (default)
             const transport = new StdioServerTransport();
             await server.connect(transport);
             logger.info("Discord MCP server running on stdio");
@@ -896,7 +1008,6 @@ async function main() {
     }
 }
 
-// Graceful shutdown
 process.on("SIGINT", async () => {
     logger.info("Shutting down Discord MCP server...");
     if (discordService) {
@@ -913,7 +1024,6 @@ process.on("SIGTERM", async () => {
     process.exit(0);
 });
 
-// Run the server
 main().catch((error) => {
     logger.error("Fatal error", error);
     process.exit(1);

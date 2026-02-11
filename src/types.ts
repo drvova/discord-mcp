@@ -1309,3 +1309,173 @@ export const InvokeDiscordjsSymbolSchema = z.object({
         .optional()
         .describe("Invocation policy mode (strict by default)"),
 });
+
+export const DiscordMetaPackagesSchema = z.object({
+    package: z
+        .string()
+        .optional()
+        .describe("Optional package alias or package name filter"),
+    packages: z
+        .array(z.string())
+        .optional()
+        .describe("Optional package aliases or package names filter"),
+});
+
+export const DiscordMetaSymbolsSchema = z.object({
+    packageAlias: z
+        .string()
+        .optional()
+        .describe("Optional package alias selector"),
+    package: z
+        .string()
+        .optional()
+        .describe("Optional package alias or package name selector"),
+    packages: z
+        .array(z.string())
+        .optional()
+        .describe("Optional package aliases or package names selector"),
+    kinds: z
+        .array(
+            z.enum([
+                "class",
+                "enum",
+                "interface",
+                "function",
+                "type",
+                "const",
+                "variable",
+                "event",
+                "namespace",
+                "external",
+            ]),
+        )
+        .optional()
+        .describe("Symbol kinds to include"),
+    query: z
+        .string()
+        .optional()
+        .describe("Case-insensitive symbol name filter"),
+    page: z.number().int().min(1).optional().describe("Page number"),
+    pageSize: z
+        .number()
+        .int()
+        .min(1)
+        .max(200)
+        .optional()
+        .describe("Page size (1-200)"),
+    sort: z
+        .enum(["name_asc", "name_desc"])
+        .optional()
+        .describe("Sort order by symbol name"),
+    includeKindCounts: z
+        .boolean()
+        .optional()
+        .describe("Include aggregated per-kind counts"),
+    includeAliases: z
+        .boolean()
+        .optional()
+        .describe("Include alias symbols"),
+    includeOperationalMatrix: z
+        .boolean()
+        .optional()
+        .describe("Include per-symbol operational matrix (defaults to true)"),
+});
+
+export const DiscordMetaPreflightSchema = z.object({
+    packageAlias: z
+        .string()
+        .describe("Runtime package alias (for example: discordjs, discordjs_voice)"),
+    symbol: z
+        .string()
+        .min(1)
+        .describe("Symbol to preflight (for example: TextChannel#send)"),
+    kind: z
+        .enum([
+            "class",
+            "enum",
+            "interface",
+            "function",
+            "type",
+            "const",
+            "variable",
+            "event",
+            "namespace",
+            "external",
+        ])
+        .optional()
+        .describe("Optional symbol kind disambiguation"),
+    target: InvokeDiscordjsSymbolSchema.shape.target.optional(),
+    context: InvokeDiscordjsSymbolContextSchema.optional(),
+    args: z
+        .array(z.unknown())
+        .optional()
+        .describe("Optional positional arguments for readiness checks"),
+    allowWrite: z
+        .boolean()
+        .optional()
+        .describe("Allow write/admin/dangerous preflight path"),
+    policyMode: z
+        .enum(["strict", "permissive"])
+        .optional()
+        .describe("Policy mode (strict by default)"),
+});
+
+export const DiscordExecInvokeSchema = z.object({
+    packageAlias: z
+        .string()
+        .describe("Runtime package alias (for example: discordjs, discordjs_voice)"),
+    symbol: z
+        .string()
+        .min(1)
+        .describe("Symbol to invoke"),
+    kind: z
+        .enum([
+            "class",
+            "enum",
+            "interface",
+            "function",
+            "type",
+            "const",
+            "variable",
+            "event",
+            "namespace",
+            "external",
+        ])
+        .optional()
+        .describe("Optional symbol kind disambiguation"),
+    invoke: z
+        .boolean()
+        .optional()
+        .describe("Execute invocation (defaults to true)"),
+    dryRun: z
+        .boolean()
+        .optional()
+        .describe("Dry-run only (defaults to true for safe-by-default behavior)"),
+    allowWrite: z
+        .boolean()
+        .optional()
+        .describe("Required for write/admin/dangerous execution"),
+    policyMode: z
+        .enum(["strict", "permissive"])
+        .optional()
+        .describe("Policy mode (strict by default)"),
+    args: z.array(z.unknown()).optional().describe("Invocation positional args"),
+    target: InvokeDiscordjsSymbolSchema.shape.target.optional(),
+    context: InvokeDiscordjsSymbolContextSchema.optional(),
+});
+
+export const DiscordExecBatchSchema = z.object({
+    mode: z
+        .enum(["best_effort", "all_or_none"])
+        .optional()
+        .describe("Batch execution mode"),
+    dryRun: z
+        .boolean()
+        .optional()
+        .describe("Dry-run all items (defaults to true)"),
+    items: z
+        .array(DiscordExecInvokeSchema)
+        .min(1)
+        .max(100)
+        .describe("Invocation batch items"),
+});

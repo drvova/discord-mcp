@@ -1,143 +1,85 @@
 export type DiscordOperation = string;
 
-export const DOMAIN_METHODS = [
-    "server.read",
-    "server.write",
-    "channels.read",
-    "channels.write",
-    "messages.read",
-    "messages.write",
-    "members.read",
-    "members.write",
-    "roles.read",
-    "roles.write",
-    "automation.read",
-    "automation.write",
-] as const;
-
+export const DOMAIN_METHODS = ["automation.read", "automation.write"] as const;
 export type DomainMethod = (typeof DOMAIN_METHODS)[number];
 
 const METHOD_SET = new Set<string>(DOMAIN_METHODS);
 
-export const DYNAMIC_DISCORDJS_OPERATION_PREFIX = "discordjs.";
-export const DYNAMIC_DISCORDPKG_OPERATION_PREFIX = "discordpkg.";
-export const DISCORDJS_DISCOVERY_OPERATION = "discordjs.meta.symbols";
-export const DISCORDPKG_DISCOVERY_OPERATION = "discordpkg.meta.symbols";
+export const DISCORD_META_PACKAGES_OPERATION = "discord.meta.packages";
+export const DISCORD_META_SYMBOLS_OPERATION = "discord.meta.symbols";
+export const DISCORD_META_PREFLIGHT_OPERATION = "discord.meta.preflight";
+export const DISCORD_EXEC_INVOKE_OPERATION = "discord.exec.invoke";
+export const DISCORD_EXEC_BATCH_OPERATION = "discord.exec.batch";
 
-const DYNAMIC_DISCORDJS_OPERATION_SEGMENT_PATTERN = /^discordjs\.[^.]+\..+$/i;
-const DYNAMIC_DISCORDPKG_OPERATION_SEGMENT_PATTERN =
-    /^discordpkg\.[^.]+\.[^.]+\..+$/i;
+const VALID_OPERATIONS = new Set<string>([
+    DISCORD_META_PACKAGES_OPERATION,
+    DISCORD_META_SYMBOLS_OPERATION,
+    DISCORD_META_PREFLIGHT_OPERATION,
+    DISCORD_EXEC_INVOKE_OPERATION,
+    DISCORD_EXEC_BATCH_OPERATION,
+]);
 
-const REMOVED_STATIC_OPERATION_SET = new Set<string>([
-    "get_discordjs_symbols",
-    "invoke_discordjs_symbol",
+const READ_OPERATION_SET = new Set<string>([
+    DISCORD_META_PACKAGES_OPERATION,
+    DISCORD_META_SYMBOLS_OPERATION,
+    DISCORD_META_PREFLIGHT_OPERATION,
+]);
+
+const WRITE_OPERATION_SET = new Set<string>([
+    DISCORD_EXEC_INVOKE_OPERATION,
+    DISCORD_EXEC_BATCH_OPERATION,
 ]);
 
 const METHOD_OPERATION_GROUPS: Record<DomainMethod, readonly DiscordOperation[]> = {
-    "server.read": [],
-    "server.write": [],
-    "channels.read": [],
-    "channels.write": [],
-    "messages.read": [],
-    "messages.write": [],
-    "members.read": [],
-    "members.write": [],
-    "roles.read": [],
-    "roles.write": [],
     "automation.read": [
-        DISCORDJS_DISCOVERY_OPERATION,
-        DISCORDPKG_DISCOVERY_OPERATION,
+        DISCORD_META_PACKAGES_OPERATION,
+        DISCORD_META_SYMBOLS_OPERATION,
+        DISCORD_META_PREFLIGHT_OPERATION,
     ],
-    "automation.write": [],
+    "automation.write": [
+        DISCORD_EXEC_INVOKE_OPERATION,
+        DISCORD_EXEC_BATCH_OPERATION,
+    ],
 };
 
-export function isDynamicDiscordJsOperation(operation: string): boolean {
-    return operation
-        .trim()
-        .toLowerCase()
-        .startsWith(DYNAMIC_DISCORDJS_OPERATION_PREFIX);
+export function isDiscordMetaOperation(operation: string): boolean {
+    return operation.trim().toLowerCase().startsWith("discord.meta.");
 }
 
-export function isDynamicDiscordPkgOperation(operation: string): boolean {
-    return operation
-        .trim()
-        .toLowerCase()
-        .startsWith(DYNAMIC_DISCORDPKG_OPERATION_PREFIX);
+export function isDiscordExecOperation(operation: string): boolean {
+    return operation.trim().toLowerCase().startsWith("discord.exec.");
 }
 
-export function isDiscordJsDiscoveryOperation(operation: string): boolean {
+export function isDiscordMetaPackagesOperation(operation: string): boolean {
     return (
-        operation.trim().toLowerCase() === DISCORDJS_DISCOVERY_OPERATION
+        operation.trim().toLowerCase() === DISCORD_META_PACKAGES_OPERATION
     );
 }
 
-export function isDiscordPkgDiscoveryOperation(operation: string): boolean {
+export function isDiscordMetaSymbolsOperation(operation: string): boolean {
+    return operation.trim().toLowerCase() === DISCORD_META_SYMBOLS_OPERATION;
+}
+
+export function isDiscordMetaPreflightOperation(operation: string): boolean {
     return (
-        operation.trim().toLowerCase() === DISCORDPKG_DISCOVERY_OPERATION
+        operation.trim().toLowerCase() === DISCORD_META_PREFLIGHT_OPERATION
     );
 }
 
-export function isDiscordJsInvocationOperation(operation: string): boolean {
-    const normalized = operation.trim();
-    if (!DYNAMIC_DISCORDJS_OPERATION_SEGMENT_PATTERN.test(normalized)) {
-        return false;
-    }
-
-    if (isDiscordJsDiscoveryOperation(normalized)) {
-        return false;
-    }
-
-    const withoutPrefix = normalized.slice(
-        DYNAMIC_DISCORDJS_OPERATION_PREFIX.length,
-    );
-    const separatorIndex = withoutPrefix.indexOf(".");
-    if (separatorIndex <= 0) {
-        return false;
-    }
-
-    const kind = withoutPrefix.slice(0, separatorIndex).toLowerCase();
-    return kind !== "meta";
+export function isDiscordExecInvokeOperation(operation: string): boolean {
+    return operation.trim().toLowerCase() === DISCORD_EXEC_INVOKE_OPERATION;
 }
 
-export function isDiscordPkgInvocationOperation(operation: string): boolean {
-    const normalized = operation.trim();
-    if (!DYNAMIC_DISCORDPKG_OPERATION_SEGMENT_PATTERN.test(normalized)) {
-        return false;
-    }
-
-    if (isDiscordPkgDiscoveryOperation(normalized)) {
-        return false;
-    }
-
-    const withoutPrefix = normalized.slice(
-        DYNAMIC_DISCORDPKG_OPERATION_PREFIX.length,
-    );
-    const packageSeparatorIndex = withoutPrefix.indexOf(".");
-    if (packageSeparatorIndex <= 0) {
-        return false;
-    }
-
-    const packageAlias = withoutPrefix
-        .slice(0, packageSeparatorIndex)
-        .toLowerCase();
-    if (packageAlias === "meta") {
-        return false;
-    }
-
-    const afterPackageAlias = withoutPrefix.slice(packageSeparatorIndex + 1);
-    const kindSeparatorIndex = afterPackageAlias.indexOf(".");
-    if (kindSeparatorIndex <= 0) {
-        return false;
-    }
-
-    const kind = afterPackageAlias.slice(0, kindSeparatorIndex).toLowerCase();
-    return kind !== "meta";
+export function isDiscordExecBatchOperation(operation: string): boolean {
+    return operation.trim().toLowerCase() === DISCORD_EXEC_BATCH_OPERATION;
 }
 
-function staticMigrationError(operation: string): Error {
-    return new Error(
-        `Static operation '${operation}' has been removed. Use '${DISCORDJS_DISCOVERY_OPERATION}' or '${DISCORDPKG_DISCOVERY_OPERATION}' for discovery, or dynamic formats 'discordjs.<kind>.<symbol>' / 'discordpkg.<packageAlias>.<kind>.<symbol>' for invocation.`,
-    );
+export function isDiscordReadOperation(operation: string): boolean {
+    return READ_OPERATION_SET.has(operation.trim().toLowerCase());
+}
+
+export function isDiscordWriteOperation(operation: string): boolean {
+    return WRITE_OPERATION_SET.has(operation.trim().toLowerCase());
 }
 
 export function resolveDomainMethod(method: string): DomainMethod {
@@ -151,113 +93,51 @@ export function resolveDomainMethod(method: string): DomainMethod {
     return normalized as DomainMethod;
 }
 
-export function resolveOperationForMethod(
-    method: DomainMethod,
-    operation: string,
-): DiscordOperation {
-    const normalized = operation.trim();
+export function resolveOperation(operation: string): DiscordOperation {
+    const normalized = operation.trim().toLowerCase();
     if (!normalized) {
         throw new Error("Operation cannot be empty.");
     }
 
-    const lower = normalized.toLowerCase();
-    if (REMOVED_STATIC_OPERATION_SET.has(lower)) {
-        throw staticMigrationError(lower);
-    }
-
-    if (method === "automation.read") {
-        if (isDiscordJsDiscoveryOperation(normalized)) {
-            return DISCORDJS_DISCOVERY_OPERATION;
-        }
-        if (isDiscordPkgDiscoveryOperation(normalized)) {
-            return DISCORDPKG_DISCOVERY_OPERATION;
-        }
-
-        if (isDynamicDiscordJsOperation(normalized)) {
-            throw new Error(
-                `Operation '${operation}' is not valid for method 'automation.read'. Use '${DISCORDJS_DISCOVERY_OPERATION}'.`,
-            );
-        }
-        if (isDynamicDiscordPkgOperation(normalized)) {
-            throw new Error(
-                `Operation '${operation}' is not valid for method 'automation.read'. Use '${DISCORDPKG_DISCOVERY_OPERATION}'.`,
-            );
-        }
-
+    if (!VALID_OPERATIONS.has(normalized)) {
         throw new Error(
-            `Unsupported operation '${operation}'. Use '${DISCORDJS_DISCOVERY_OPERATION}' or '${DISCORDPKG_DISCOVERY_OPERATION}' for discovery.`,
+            `Unsupported operation '${operation}'. Valid operations: ${Array.from(VALID_OPERATIONS).join(", ")}.`,
         );
     }
 
-    if (method === "automation.write") {
-        if (isDiscordJsDiscoveryOperation(normalized)) {
-            throw new Error(
-                `Operation '${operation}' is not valid for method 'automation.write'. '${DISCORDJS_DISCOVERY_OPERATION}' requires method 'automation.read'.`,
-            );
-        }
-        if (isDiscordPkgDiscoveryOperation(normalized)) {
-            throw new Error(
-                `Operation '${operation}' is not valid for method 'automation.write'. '${DISCORDPKG_DISCOVERY_OPERATION}' requires method 'automation.read'.`,
-            );
-        }
+    return normalized;
+}
 
-        if (isDiscordJsInvocationOperation(normalized)) {
-            return normalized;
-        }
-        if (isDiscordPkgInvocationOperation(normalized)) {
-            return normalized;
-        }
+export function resolveOperationForMethod(
+    method: DomainMethod,
+    operation: string,
+): DiscordOperation {
+    const normalizedOperation = resolveOperation(operation);
+    const methodMatches =
+        (method === "automation.read" &&
+            READ_OPERATION_SET.has(normalizedOperation)) ||
+        (method === "automation.write" &&
+            WRITE_OPERATION_SET.has(normalizedOperation));
 
-        if (isDynamicDiscordJsOperation(normalized)) {
-            throw new Error(
-                `Dynamic discord.js operation '${operation}' must use a non-'meta' kind and match 'discordjs.<kind>.<symbol>'.`,
-            );
-        }
-        if (isDynamicDiscordPkgOperation(normalized)) {
-            throw new Error(
-                `Dynamic Discord package operation '${operation}' must use a non-'meta' package alias and kind, matching 'discordpkg.<packageAlias>.<kind>.<symbol>'.`,
-            );
-        }
-
+    if (!methodMatches) {
+        const allowed = METHOD_OPERATION_GROUPS[method];
         throw new Error(
-            `Unsupported operation '${operation}'. Use dynamic format 'discordjs.<kind>.<symbol>' or 'discordpkg.<packageAlias>.<kind>.<symbol>' for invocation.`,
+            `Operation '${operation}' is not valid for method '${method}'. Valid operations: ${allowed.join(", ")}`,
         );
     }
 
-    if (
-        isDynamicDiscordJsOperation(normalized) ||
-        isDynamicDiscordPkgOperation(normalized)
-    ) {
-        throw new Error(
-            `Discord dynamic operation '${operation}' is only valid for methods 'automation.read' and 'automation.write'.`,
-        );
-    }
-
-    throw new Error(
-        `Unsupported operation '${operation}' for method '${method}'.`,
-    );
+    return normalizedOperation;
 }
 
 export function getDomainMethodForOperation(
     operation: DiscordOperation,
 ): DomainMethod {
-    if (isDiscordJsDiscoveryOperation(operation)) {
+    const normalized = resolveOperation(operation);
+    if (READ_OPERATION_SET.has(normalized)) {
         return "automation.read";
     }
-    if (isDiscordPkgDiscoveryOperation(operation)) {
-        return "automation.read";
-    }
-
-    if (isDiscordJsInvocationOperation(operation)) {
+    if (WRITE_OPERATION_SET.has(normalized)) {
         return "automation.write";
-    }
-    if (isDiscordPkgInvocationOperation(operation)) {
-        return "automation.write";
-    }
-
-    const normalized = operation.trim().toLowerCase();
-    if (REMOVED_STATIC_OPERATION_SET.has(normalized)) {
-        throw staticMigrationError(normalized);
     }
 
     throw new Error(`No domain method mapped for operation '${operation}'.`);
@@ -268,3 +148,4 @@ export function getOperationsForMethod(
 ): readonly DiscordOperation[] {
     return METHOD_OPERATION_GROUPS[method];
 }
+
