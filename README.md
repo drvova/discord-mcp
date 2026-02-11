@@ -94,9 +94,6 @@ DISCORD_GUILD_ID=your_guild_id_here
 # Optional audit log file
 # DISCORD_MCP_AUDIT_LOG_PATH=./data/discord-mcp-audit.log
 
-# Optional legacy rewrite state file (one-time legacy auto-rewrite tracking)
-# DISCORD_MCP_LEGACY_REWRITE_STATE_PATH=./data/legacy-rewrite-state.json
-
 # Optional logging
 # LOG_LEVEL=INFO
 # LOG_STYLE=pretty
@@ -279,26 +276,13 @@ The MCP JSON-RPC contract on `POST /` is unchanged (`initialize`, `tools/list`, 
 
 ## Legacy Dynamic Compatibility
 
-Legacy operation strings now follow a strict migration policy:
+Legacy operation strings are not supported. Use only vNext operations:
 
-1. First call auto-rewrites to vNext and executes.
-2. Next call with the same legacy operation (per `mode + identityId + operation`) is blocked.
-3. Blocked calls return a structured `LEGACY_OPERATION_REMOVED` payload with the exact vNext replacement.
-
-Supported legacy formats for one-time rewrite:
-- `discordjs.meta.symbols` -> `discord.meta.symbols` with `packageAlias=discordjs`
-- `discordpkg.meta.symbols` -> `discord.meta.symbols`
-- `discordjs.<kind>.<symbol>` -> `discord.exec.invoke`
-- `discordpkg.<packageAlias>.<kind>.<symbol>` -> `discord.exec.invoke`
-
-Normalized kind aliases:
-- `classes` -> `class`
-- `functions` -> `function`
-- `enums` -> `enum`
-- `interfaces` -> `interface`
-- `types` -> `type`
-- `variables` -> `variable`
-- `constants` / `consts` -> `const`
+- `discord.meta.packages`
+- `discord.meta.symbols`
+- `discord.meta.preflight`
+- `discord.exec.invoke`
+- `discord.exec.batch`
 
 ## Notes on Operation Counts
 

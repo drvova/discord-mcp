@@ -1229,7 +1229,7 @@ export const InvokeDiscordjsSymbolSchema = z.object({
         .string()
         .optional()
         .describe(
-            "Runtime package alias. Defaults to 'discordjs' for legacy discord.js operations.",
+            "Runtime package alias (for example: discordjs, discordjs_voice).",
         ),
     symbol: z
         .string()

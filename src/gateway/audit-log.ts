@@ -12,13 +12,9 @@ export type AuditEvent = {
     riskTier: AuditRiskTier;
     status: "success" | "error";
     durationMs: number;
-    compatTranslated?: boolean;
     preflightCanExecute?: boolean;
     blockingReasonCount?: number;
     batchMode?: "best_effort" | "all_or_none";
-    legacyOperation?: string;
-    legacyRewriteCount?: number;
-    migrationBlocked?: boolean;
     error?: string;
 };
 
@@ -52,11 +48,6 @@ export function writeAuditEvent(event: AuditEvent): void {
         "discord.risk_tier": event.riskTier,
         "discord.mode": event.mode,
         "discord.method": event.method,
-        ...(event.compatTranslated !== undefined
-            ? {
-                  "discord.compat_translated": String(event.compatTranslated),
-              }
-            : {}),
         ...(event.preflightCanExecute !== undefined
             ? {
                   "discord.preflight_can_execute": String(
@@ -72,21 +63,6 @@ export function writeAuditEvent(event: AuditEvent): void {
         ...(event.batchMode
             ? {
                   "discord.batch_mode": event.batchMode,
-              }
-            : {}),
-        ...(event.legacyOperation
-            ? {
-                  "discord.legacy_operation": event.legacyOperation,
-              }
-            : {}),
-        ...(event.legacyRewriteCount !== undefined
-            ? {
-                  "discord.legacy_rewrite_count": event.legacyRewriteCount,
-              }
-            : {}),
-        ...(event.migrationBlocked !== undefined
-            ? {
-                  "discord.migration_blocked": String(event.migrationBlocked),
               }
             : {}),
     });

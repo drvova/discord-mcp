@@ -36,8 +36,6 @@ export type DiscordJsSymbol = {
     behaviorClass: DiscordJsSymbolBehaviorClass;
     invokable: boolean;
     operationKey: string;
-    packageOperationKey: string;
-    legacyOperationKey?: string;
     docsPath?: string;
     declaredOn?: string;
     aliasOf?: string;
@@ -110,7 +108,7 @@ const ALL_KINDS: DiscordJsSymbolKind[] = [
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 50;
-const LEGACY_DISCORDJS_ALIAS = "discordjs";
+const DISCORDJS_ALIAS = "discordjs";
 const require = createRequire(import.meta.url);
 
 let catalogCache: DiscordPackageCatalogCache | null = null;
@@ -294,23 +292,8 @@ function toDocsPath(
     return `/docs/packages/discord.js/${version}/${name}:${docsKindLabel(kind)}`;
 }
 
-function createPackageOperationKey(
-    packageAlias: string,
-    kind: DiscordJsSymbolKind,
-    name: string,
-): string {
-    return `discordpkg.${packageAlias}.${kind}.${encodeURIComponent(name)}`;
-}
-
-function createLegacyOperationKey(
-    packageAlias: string,
-    kind: DiscordJsSymbolKind,
-    name: string,
-): string | undefined {
-    if (packageAlias !== LEGACY_DISCORDJS_ALIAS) {
-        return undefined;
-    }
-    return `discordjs.${kind}.${encodeURIComponent(name)}`;
+function createOperationKey(kind: DiscordJsSymbolKind): string {
+    return kind === "function" ? "discord.exec.invoke" : "discord.meta.symbols";
 }
 
 function createSymbol(
@@ -324,11 +307,7 @@ function createSymbol(
     } = {},
 ): DiscordJsSymbol {
     const origin = metadata.origin || "runtime";
-    const packageOperationKey = createPackageOperationKey(
-        runtimePackage.packageAlias,
-        kind,
-        name,
-    );
+    const operationKey = createOperationKey(kind);
     return {
         name,
         kind,
@@ -339,13 +318,7 @@ function createSymbol(
         origin,
         behaviorClass: classifyDiscordJsSymbolBehavior(name, kind),
         invokable: kind === "function" && origin === "runtime",
-        operationKey: packageOperationKey,
-        packageOperationKey,
-        legacyOperationKey: createLegacyOperationKey(
-            runtimePackage.packageAlias,
-            kind,
-            name,
-        ),
+        operationKey,
         docsPath: toDocsPath(
             runtimePackage.packageName,
             runtimePackage.version,
@@ -1133,10 +1106,10 @@ export async function getDiscordJsSymbolsCatalog(
 ): Promise<DiscordJsSymbolCatalog> {
     const packageCatalog = await getDiscordPackageSymbolsCatalog({
         ...options,
-        package: LEGACY_DISCORDJS_ALIAS,
+        package: DISCORDJS_ALIAS,
     });
     const discordJsPackage = packageCatalog.packages.find(
-        (entry) => entry.packageAlias === LEGACY_DISCORDJS_ALIAS,
+        (entry) => entry.packageAlias === DISCORDJS_ALIAS,
     );
     if (!discordJsPackage) {
         throw new Error("The required runtime package 'discord.js' is unavailable.");
@@ -1145,7 +1118,7 @@ export async function getDiscordJsSymbolsCatalog(
     const compatibilityItems = packageCatalog.items.map((item) => ({
         ...item,
         source: "discord.js",
-        operationKey: item.legacyOperationKey || item.operationKey,
+        operationKey: item.operationKey,
     }));
 
     return {

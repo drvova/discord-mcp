@@ -302,7 +302,7 @@ export class DiscordService {
 
         try {
             return await withSpan(
-                "discordjs.invoke_symbol",
+                "discord.invoke_symbol",
                 {
                     "discord.symbol": input.symbol,
                     "discord.kind": operationKind,
@@ -655,7 +655,7 @@ export class DiscordService {
                     "discord.mode": this.currentAuthConfig.tokenType,
                     "discord.method": "automation.write",
                     "discord.package_alias": operationPackageAlias,
-                    "discord.operation": `discordpkg.${operationPackageAlias}.${operationKind}`,
+                    "discord.operation": "discord.exec.invoke",
                     "discord.operation_type": "invocation",
                     "discord.risk_tier": "high",
                     "discord.status": status,
