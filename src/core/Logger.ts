@@ -1,62 +1,80 @@
+import type { Logger as PinoLogger } from "pino";
+import { getRuntimeLogger } from "../observability/logger.js";
+
 export enum LogLevel {
-  ERROR = 0,
-  WARN = 1,
-  INFO = 2,
-  DEBUG = 3
+    ERROR = 0,
+    WARN = 1,
+    INFO = 2,
+    DEBUG = 3,
 }
 
 export class Logger {
-  private static instance: Logger;
-  private logLevel: LogLevel;
-  private enableLogging: boolean;
+    private static instance: Logger;
+    private readonly delegate: PinoLogger;
 
-  private constructor() {
-    this.enableLogging = process.env.ENABLE_LOGGING === 'true';
-    this.logLevel = this.parseLogLevel(process.env.LOG_LEVEL);
-  }
-
-  static getInstance(): Logger {
-    if (!Logger.instance) {
-      Logger.instance = new Logger();
+    private constructor(delegate: PinoLogger) {
+        this.delegate = delegate;
     }
-    return Logger.instance;
-  }
 
-  private parseLogLevel(level?: string): LogLevel {
-    switch (level?.toUpperCase()) {
-      case 'ERROR': return LogLevel.ERROR;
-      case 'WARN': return LogLevel.WARN;
-      case 'INFO': return LogLevel.INFO;
-      case 'DEBUG': return LogLevel.DEBUG;
-      default: return LogLevel.INFO;
+    static getInstance(): Logger {
+        if (!Logger.instance) {
+            Logger.instance = new Logger(getRuntimeLogger());
+        }
+        return Logger.instance;
     }
-  }
 
-  private shouldLog(level: LogLevel): boolean {
-    return this.enableLogging && level <= this.logLevel;
-  }
-
-  private formatMessage(level: string, message: string): string {
-    const timestamp = new Date().toISOString();
-    return `[${timestamp}] [${level}] DiscordMCP: ${message}`;
-  }
-
-  error(message: string, error?: any): void {
-    if (this.shouldLog(LogLevel.ERROR)) {
-      console.error(this.formatMessage('ERROR', message));
-      if (error) {
-        console.error(error);
-      }
+    child(context: string): Logger {
+        const trimmed = context.trim();
+        if (!trimmed) {
+            return this;
+        }
+        return new Logger(
+            this.delegate.child({
+                module: trimmed,
+            }),
+        );
     }
-  }
 
-  info(message: string): void {
-    if (this.shouldLog(LogLevel.INFO)) {
-      console.info(this.formatMessage('INFO', message));
+    error(message: string, errorOrMeta?: unknown): void {
+        this.write("error", message, errorOrMeta);
     }
-  }
 
-  logError(operation: string, error: any): void {
-    this.error(`Operation failed: ${operation}`, error);
-  }
+    warn(message: string, meta?: unknown): void {
+        this.write("warn", message, meta);
+    }
+
+    info(message: string, meta?: unknown): void {
+        this.write("info", message, meta);
+    }
+
+    debug(message: string, meta?: unknown): void {
+        this.write("debug", message, meta);
+    }
+
+    logError(operation: string, error: unknown): void {
+        this.error(`Operation failed: ${operation}`, error);
+    }
+
+    private write(
+        level: "error" | "warn" | "info" | "debug",
+        message: string,
+        data?: unknown,
+    ): void {
+        if (data === undefined) {
+            this.delegate[level](message);
+            return;
+        }
+
+        if (data instanceof Error) {
+            this.delegate[level]({ err: data }, message);
+            return;
+        }
+
+        if (typeof data === "object" && data !== null) {
+            this.delegate[level](data as Record<string, unknown>, message);
+            return;
+        }
+
+        this.delegate[level]({ value: data }, message);
+    }
 }

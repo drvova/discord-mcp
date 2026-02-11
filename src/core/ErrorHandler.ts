@@ -1,3 +1,5 @@
+import { Logger } from "./Logger.js";
+
 class DiscordAPIError extends Error {
   constructor(
     message: string,
@@ -35,10 +37,11 @@ class RateLimitError extends Error {
   }
 }
 
+const logger = Logger.getInstance().child("error-handler");
+
 export class ErrorHandler {
   static handle(error: any): never {
-    // Log the error for debugging
-    console.error('Discord MCP Error:', error);
+    logger.error("Discord MCP Error", error);
     
     // Re-throw specific error types
     if (error instanceof DiscordAPIError) {

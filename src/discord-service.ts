@@ -17,10 +17,15 @@ import {
 } from "discord.js";
 import { AuthConfigSchema, SwitchTokenSchema } from "./types.js";
 import { DEFAULT_DISCORD_INTENTS } from "./core/ConfigManager.js";
+import { Logger } from "./core/Logger.js";
 import {
     classifyDiscordJsSymbolBehavior,
     getDiscordJsSymbolsCatalog,
 } from "./gateway/discordjs-symbol-catalog.js";
+import {
+    recordDiscordOperationMetric,
+    withSpan,
+} from "./observability/telemetry.js";
 
 type DiscordJsInvocationKind =
     | "class"
@@ -128,6 +133,7 @@ export class DiscordService {
     private defaultGuildId?: string;
     private isReady = false;
     private currentAuthConfig: z.infer<typeof AuthConfigSchema>;
+    private readonly logger = Logger.getInstance().child("discord-service");
 
     constructor(authConfig?: z.infer<typeof AuthConfigSchema>) {
         const resolvedIntents =
@@ -182,8 +188,8 @@ export class DiscordService {
                         await guild.channels.fetch();
                     }
                 } catch (error) {
-                    console.error(
-                        "Warning: Could not fully populate cache:",
+                    this.logger.warn(
+                        "Could not fully populate guild/channel cache",
                         error,
                     );
                 }
@@ -193,7 +199,7 @@ export class DiscordService {
             });
 
             this.client.on("error", (error) => {
-                console.error("Discord client error:", error);
+                this.logger.error("Discord client error", error);
             });
 
             this.client.login(token).catch((error) => {
@@ -286,17 +292,29 @@ export class DiscordService {
         context?: DiscordJsInvocationContextInput;
     }): Promise<string> {
         this.ensureReady();
+        const startedAt = Date.now();
+        let status: "success" | "error" = "success";
+        const operationKind = input.kind || "auto";
 
-        const symbol = input.symbol.trim();
-        if (!symbol) {
-            throw new Error("Symbol cannot be empty.");
-        }
+        try {
+            return await withSpan(
+                "discordjs.invoke_symbol",
+                {
+                    "discord.symbol": input.symbol,
+                    "discord.kind": operationKind,
+                    "discord.target": input.target || "auto",
+                },
+                async () => {
+                    const symbol = input.symbol.trim();
+                    if (!symbol) {
+                        throw new Error("Symbol cannot be empty.");
+                    }
 
-        const catalog = await getDiscordJsSymbolsCatalog({
-            query: symbol,
-            page: 1,
-            pageSize: 10000,
-        });
+                    const catalog = await getDiscordJsSymbolsCatalog({
+                        query: symbol,
+                        page: 1,
+                        pageSize: 10000,
+                    });
 
         const matches = catalog.items.filter(
             (item) =>
@@ -567,29 +585,48 @@ export class DiscordService {
             );
         }
 
-        return JSON.stringify(
-            {
-                symbol: requestedSymbol,
-                requestedSymbol,
-                resolvedSymbol,
-                aliasOf: symbolMeta.aliasOf,
-                origin: symbolMeta.origin,
-                kind,
-                docsPath: symbolMeta.docsPath,
-                invoked: true,
-                invocationMode,
-                target: targetLabel || input.target || "export",
-                behaviorClass,
-                policyMode,
-                policyDecision: "allow",
-                requiresAllowWrite: policyResult.requiresAllowWrite,
-                resolvedTarget: resolvedTargetSummary,
-                contextRequirements,
-                result: this.serializeInvocationValue(result),
-            },
-            null,
-            2,
-        );
+                    return JSON.stringify(
+                        {
+                            symbol: requestedSymbol,
+                            requestedSymbol,
+                            resolvedSymbol,
+                            aliasOf: symbolMeta.aliasOf,
+                            origin: symbolMeta.origin,
+                            kind,
+                            docsPath: symbolMeta.docsPath,
+                            invoked: true,
+                            invocationMode,
+                            target: targetLabel || input.target || "export",
+                            behaviorClass,
+                            policyMode,
+                            policyDecision: "allow",
+                            requiresAllowWrite: policyResult.requiresAllowWrite,
+                            resolvedTarget: resolvedTargetSummary,
+                            contextRequirements,
+                            result: this.serializeInvocationValue(result),
+                        },
+                        null,
+                        2,
+                    );
+                },
+            );
+        } catch (error) {
+            status = "error";
+            throw error;
+        } finally {
+            recordDiscordOperationMetric(
+                {
+                    "discord.layer": "symbol",
+                    "discord.mode": this.currentAuthConfig.tokenType,
+                    "discord.method": "automation.write",
+                    "discord.operation": `discordjs.${operationKind}`,
+                    "discord.operation_type": "invocation",
+                    "discord.risk_tier": "high",
+                    "discord.status": status,
+                },
+                Date.now() - startedAt,
+            );
+        }
     }
 
     async destroy(): Promise<void> {

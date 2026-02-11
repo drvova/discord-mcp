@@ -9,6 +9,7 @@ import {
 import { serve } from "@hono/node-server";
 import { DiscordService } from "./discord-service.js";
 import { DiscordController } from "./core/DiscordController.js";
+import { Logger } from "./core/Logger.js";
 import { OAuthManager } from "./core/OAuthManager.js";
 import { writeAuditEvent } from "./gateway/audit-log.js";
 import { getDiscordJsSymbolsCatalog } from "./gateway/discordjs-symbol-catalog.js";
@@ -29,6 +30,11 @@ import {
     LocalEncryptedIdentityStore,
     type IdentityMode,
 } from "./identity/local-encrypted-identity-store.js";
+import {
+    recordDiscordOperationMetric,
+    recordRequestMetric,
+    withSpan,
+} from "./observability/telemetry.js";
 import * as schemas from "./types.js";
 
 const server = new Server(
@@ -48,6 +54,7 @@ let discordController: DiscordController;
 let oauthManager: OAuthManager | null = null;
 const identityStore = new LocalEncryptedIdentityStore();
 const identityWorkerPool = new IdentityWorkerPool();
+const logger = Logger.getInstance().child("server");
 
 function getOAuthManager(): OAuthManager {
     if (!oauthManager) {
@@ -509,100 +516,179 @@ async function executeDiscordManageOperation(
     parsedCall: ParsedDiscordManageCall,
 ): Promise<string> {
     const { operation, params } = parsedCall;
+    const startedAt = Date.now();
+    let status: "success" | "error" = "success";
+    const operationType = isDiscordJsDiscoveryOperation(operation)
+        ? "discovery"
+        : "invocation";
 
-    if (isDiscordJsDiscoveryOperation(operation)) {
-        const parsed = schemas.GetDiscordjsSymbolsSchema.parse(params);
-        const catalog = await getDiscordJsSymbolsCatalog({
-            kinds: parsed.kinds,
-            query: parsed.query,
-            page: parsed.page,
-            pageSize: parsed.pageSize,
-            sort: parsed.sort,
-            includeKindCounts: parsed.includeKindCounts,
-        });
-        return JSON.stringify(catalog, null, 2);
+    try {
+        return await withSpan(
+            "discord_manage.execute",
+            {
+                "discord.mode": parsedCall.mode,
+                "discord.method": parsedCall.method,
+                "discord.operation": parsedCall.operation,
+                "discord.operation_type": operationType,
+                "discord.identity_id": parsedCall.identityId,
+            },
+            async () => {
+                if (isDiscordJsDiscoveryOperation(operation)) {
+                    const parsed = schemas.GetDiscordjsSymbolsSchema.parse(params);
+                    const catalog = await getDiscordJsSymbolsCatalog({
+                        kinds: parsed.kinds,
+                        query: parsed.query,
+                        page: parsed.page,
+                        pageSize: parsed.pageSize,
+                        sort: parsed.sort,
+                        includeKindCounts: parsed.includeKindCounts,
+                    });
+                    return JSON.stringify(catalog, null, 2);
+                }
+
+                if (isDiscordJsInvocationOperation(operation)) {
+                    const parsed = schemas.InvokeDiscordjsSymbolSchema.parse(params);
+                    return await discordService.invokeDiscordJsSymbol({
+                        symbol: parsed.symbol,
+                        kind: parsed.kind,
+                        invoke: parsed.invoke,
+                        dryRun: parsed.dryRun,
+                        allowWrite: parsed.allowWrite,
+                        policyMode: parsed.policyMode,
+                        args: parsed.args,
+                        target: parsed.target,
+                        context: parsed.context,
+                    });
+                }
+
+                throw new Error(`Unsupported operation: ${operation}`);
+            },
+        );
+    } catch (error) {
+        status = "error";
+        throw error;
+    } finally {
+        recordDiscordOperationMetric(
+            {
+                "discord.layer": "router",
+                "discord.mode": parsedCall.mode,
+                "discord.method": parsedCall.method,
+                "discord.operation": parsedCall.operation,
+                "discord.operation_type": operationType,
+                "discord.risk_tier": parsedCall.riskTier,
+                "discord.status": status,
+            },
+            Date.now() - startedAt,
+        );
     }
-
-    if (isDiscordJsInvocationOperation(operation)) {
-        const parsed = schemas.InvokeDiscordjsSymbolSchema.parse(params);
-        return await discordService.invokeDiscordJsSymbol({
-            symbol: parsed.symbol,
-            kind: parsed.kind,
-            invoke: parsed.invoke,
-            dryRun: parsed.dryRun,
-            allowWrite: parsed.allowWrite,
-            policyMode: parsed.policyMode,
-            args: parsed.args,
-            target: parsed.target,
-            context: parsed.context,
-        });
-    }
-
-    throw new Error(`Unsupported operation: ${operation}`);
 }
 
 // Tool definitions
 server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return {
-        tools: getAllTools(),
-    };
+    const startedAt = Date.now();
+    let status: "success" | "error" = "success";
+    try {
+        return await withSpan(
+            "mcp.tools.list",
+            { "mcp.transport": "stdio" },
+            async () => ({
+                tools: getAllTools(),
+            }),
+        );
+    } catch (error) {
+        status = "error";
+        throw error;
+    } finally {
+        recordRequestMetric(
+            {
+                "mcp.transport": "stdio",
+                "mcp.method": "tools/list",
+                "mcp.status": status,
+            },
+            Date.now() - startedAt,
+        );
+    }
 });
 
 // Tool request handler
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const startedAt = Date.now();
+    let status: "success" | "error" = "success";
     try {
-        const parsedCall = parseDiscordManageCall(
-            request.params.name,
-            request.params.arguments,
-        );
-        const startedAt = Date.now();
+        return await withSpan(
+            "mcp.tools.call",
+            {
+                "mcp.transport": "stdio",
+                "mcp.tool_name":
+                    typeof request.params.name === "string"
+                        ? request.params.name
+                        : "unknown",
+            },
+            async () => {
+                const parsedCall = parseDiscordManageCall(
+                    request.params.name,
+                    request.params.arguments,
+                );
+                const operationStartedAt = Date.now();
 
-        try {
-            const result = await identityWorkerPool.run(
-                parsedCall.identityId,
-                async () => {
-                    await ensureIdentityForCall(
-                        parsedCall.mode,
+                try {
+                    const result = await identityWorkerPool.run(
                         parsedCall.identityId,
+                        async () => {
+                            await ensureIdentityForCall(
+                                parsedCall.mode,
+                                parsedCall.identityId,
+                            );
+                            return executeDiscordManageOperation(parsedCall);
+                        },
                     );
-                    return executeDiscordManageOperation(parsedCall);
-                },
-            );
-            const response = {
-                content: [{ type: "text", text: result }],
-            };
+                    const response = {
+                        content: [{ type: "text", text: result }],
+                    };
 
-            writeAuditEvent({
-                identityId: parsedCall.identityId,
-                mode: parsedCall.mode,
-                method: parsedCall.method,
-                operation: parsedCall.operation,
-                riskTier: parsedCall.riskTier,
-                status: "success",
-                durationMs: Date.now() - startedAt,
-            });
+                    writeAuditEvent({
+                        identityId: parsedCall.identityId,
+                        mode: parsedCall.mode,
+                        method: parsedCall.method,
+                        operation: parsedCall.operation,
+                        riskTier: parsedCall.riskTier,
+                        status: "success",
+                        durationMs: Date.now() - operationStartedAt,
+                    });
 
-            return response;
-        } catch (error) {
-            writeAuditEvent({
-                identityId: parsedCall.identityId,
-                mode: parsedCall.mode,
-                method: parsedCall.method,
-                operation: parsedCall.operation,
-                riskTier: parsedCall.riskTier,
-                status: "error",
-                durationMs: Date.now() - startedAt,
-                error: error instanceof Error ? error.message : String(error),
-            });
-            throw error;
-        }
+                    return response;
+                } catch (error) {
+                    writeAuditEvent({
+                        identityId: parsedCall.identityId,
+                        mode: parsedCall.mode,
+                        method: parsedCall.method,
+                        operation: parsedCall.operation,
+                        riskTier: parsedCall.riskTier,
+                        status: "error",
+                        durationMs: Date.now() - operationStartedAt,
+                        error: error instanceof Error ? error.message : String(error),
+                    });
+                    throw error;
+                }
+            },
+        );
     } catch (error) {
+        status = "error";
         const errorMessage =
             error instanceof Error ? error.message : String(error);
         return {
             content: [{ type: "text", text: `Error: ${errorMessage}` }],
             isError: true,
         };
+    } finally {
+        recordRequestMetric(
+            {
+                "mcp.transport": "stdio",
+                "mcp.method": "tools/call",
+                "mcp.status": status,
+            },
+            Date.now() - startedAt,
+        );
     }
 });
 
@@ -632,30 +718,30 @@ async function main() {
                 const startupInvite = await oauthManager.createAuthorizeLink({
                     guildId: config.oauth.defaultGuildId,
                 });
-                console.error(
+                logger.info(
                     `Discord bot install URL (Administrator): ${startupInvite.authorizeUrl}`,
                 );
-                console.error(
+                logger.info(
                     `OAuth callback URI: ${config.oauth.redirectUri}`,
                 );
             } catch (error) {
                 const message =
                     error instanceof Error ? error.message : String(error);
-                console.error(
+                logger.warn(
                     `OAuth startup install link unavailable: ${message}`,
                 );
             }
 
             if (missingOAuthConfig.length > 0) {
-                console.error(
+                logger.warn(
                     `OAuth callback flow is partially configured. Missing: ${missingOAuthConfig.join(", ")}`,
                 );
-                console.error(
+                logger.warn(
                     "Server startup will continue so HTTP routes remain available.",
                 );
             }
         } else {
-            console.error(
+            logger.info(
                 "OAuth startup install link skipped: HTTP mode is disabled (set MCP_HTTP_PORT to enable callback flow).",
             );
         }
@@ -677,32 +763,32 @@ async function main() {
             });
             serve({ fetch: app.fetch, port });
 
-            console.error(
+            logger.info(
                 `Discord MCP server running on HTTP port ${port}`,
             );
-            console.error(`SSE endpoint: http://localhost:${port}/sse`);
-            console.error(`Health check: http://localhost:${port}/health`);
-            console.error(
+            logger.info(`SSE endpoint: http://localhost:${port}/sse`);
+            logger.info(`Health check: http://localhost:${port}/health`);
+            logger.info(
                 `OAuth start: http://localhost:${port}/oauth/discord/start`,
             );
-            console.error(
+            logger.info(
                 `OAuth callback: http://localhost:${port}/oauth/discord/callback`,
             );
         } else {
             // Start stdio server (default)
             const transport = new StdioServerTransport();
             await server.connect(transport);
-            console.error("Discord MCP server running on stdio");
+            logger.info("Discord MCP server running on stdio");
         }
     } catch (error) {
-        console.error("Failed to start Discord MCP server:", error);
+        logger.error("Failed to start Discord MCP server", error);
         process.exit(1);
     }
 }
 
 // Graceful shutdown
 process.on("SIGINT", async () => {
-    console.error("Shutting down Discord MCP server...");
+    logger.info("Shutting down Discord MCP server...");
     if (discordService) {
         await discordService.destroy();
     }
@@ -710,7 +796,7 @@ process.on("SIGINT", async () => {
 });
 
 process.on("SIGTERM", async () => {
-    console.error("Shutting down Discord MCP server...");
+    logger.info("Shutting down Discord MCP server...");
     if (discordService) {
         await discordService.destroy();
     }
@@ -719,6 +805,6 @@ process.on("SIGTERM", async () => {
 
 // Run the server
 main().catch((error) => {
-    console.error("Fatal error:", error);
+    logger.error("Fatal error", error);
     process.exit(1);
 });

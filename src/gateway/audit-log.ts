@@ -1,4 +1,6 @@
 import { appendFileSync } from "node:fs";
+import { Logger } from "../core/Logger.js";
+import { recordAuditEventMetric } from "../observability/telemetry.js";
 
 export type AuditRiskTier = "low" | "medium" | "high";
 
@@ -13,6 +15,8 @@ export type AuditEvent = {
     error?: string;
 };
 
+const logger = Logger.getInstance().child("audit");
+
 function redactError(error: unknown): string {
     if (error instanceof Error) {
         return error.message;
@@ -21,26 +25,39 @@ function redactError(error: unknown): string {
 }
 
 export function writeAuditEvent(event: AuditEvent): void {
-    const line = JSON.stringify({
+    const payload = {
         ts: new Date().toISOString(),
         type: "discord_mcp_audit",
         ...event,
-    });
+    };
+    const line = JSON.stringify(payload);
 
-    console.error(line);
+    if (event.status === "error") {
+        logger.error("discord_mcp_audit", payload);
+    } else if (event.riskTier === "high") {
+        logger.warn("discord_mcp_audit", payload);
+    } else {
+        logger.info("discord_mcp_audit", payload);
+    }
+
+    recordAuditEventMetric({
+        "discord.audit_status": event.status,
+        "discord.risk_tier": event.riskTier,
+        "discord.mode": event.mode,
+        "discord.method": event.method,
+    });
 
     const auditPath = process.env.DISCORD_MCP_AUDIT_LOG_PATH;
     if (auditPath) {
         try {
             appendFileSync(auditPath, `${line}\n`, "utf8");
         } catch (error) {
-            console.error(
-                JSON.stringify({
-                    ts: new Date().toISOString(),
-                    type: "discord_mcp_audit_write_error",
-                    error: redactError(error),
-                }),
-            );
+            logger.error("discord_mcp_audit_write_error", {
+                ts: new Date().toISOString(),
+                type: "discord_mcp_audit_write_error",
+                auditPath,
+                error: redactError(error),
+            });
         }
     }
 }

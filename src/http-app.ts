@@ -7,6 +7,7 @@ import { cors } from "hono/cors";
 import type { HttpBindings } from "@hono/node-server";
 import { RESPONSE_ALREADY_SENT } from "@hono/node-server/utils/response";
 import { z } from "zod";
+import { Logger } from "./core/Logger.js";
 import type { OAuthManager } from "./core/OAuthManager.js";
 import type { AuditEvent, AuditRiskTier } from "./gateway/audit-log.js";
 import type {
@@ -14,6 +15,7 @@ import type {
     DomainMethod,
 } from "./gateway/domain-registry.js";
 import type { IdentityMode } from "./identity/local-encrypted-identity-store.js";
+import { recordRequestMetric, withSpan } from "./observability/telemetry.js";
 
 const JsonRpcHttpMessageSchema = z.object({
     id: z.unknown().optional(),
@@ -37,6 +39,8 @@ const OAuthCallbackQuerySchema = z.object({
     code: z.string().min(1),
     state: z.string().min(1),
 });
+
+const logger = Logger.getInstance().child("http");
 
 const jsonRpcBodyValidator = validator("json", (value, c) => {
     const parsed = JsonRpcHttpMessageSchema.safeParse(value);
@@ -141,12 +145,51 @@ export function createHttpApp(deps: HttpAppDependencies) {
         }),
     );
 
+    app.use("*", async (c, next) => {
+        const startedAt = Date.now();
+        const method = c.req.method;
+        const route = c.req.path;
+        let status: "success" | "error" = "success";
+
+        try {
+            await withSpan(
+                "http.request",
+                {
+                    "http.method": method,
+                    "http.route": route,
+                },
+                async (span) => {
+                    await next();
+                    span.setAttribute("http.status_code", c.res.status);
+                },
+            );
+        } catch (error) {
+            status = "error";
+            throw error;
+        } finally {
+            recordRequestMetric(
+                {
+                    "mcp.transport": "http",
+                    "http.method": method,
+                    "http.route": route,
+                    "http.status_code": c.res.status || (status === "error" ? 500 : 200),
+                    "mcp.status": status,
+                },
+                Date.now() - startedAt,
+            );
+        }
+    });
+
     app.onError((error, c) => {
         if (error instanceof HTTPException) {
             return error.getResponse();
         }
 
-        console.error("HTTP request error:", error);
+        logger.error("HTTP request error", {
+            path: c.req.path,
+            method: c.req.method,
+            error,
+        });
         return c.json({ error: "Internal server error" }, 500);
     });
 
@@ -383,7 +426,7 @@ export function createHttpApp(deps: HttpAppDependencies) {
             } catch (error) {
                 const message =
                     error instanceof Error ? error.message : String(error);
-                console.error("[oauth] discord.callback.failed", {
+                logger.warn("discord.callback.failed", {
                     path: c.req.path,
                     message,
                     error,

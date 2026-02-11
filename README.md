@@ -94,6 +94,20 @@ DISCORD_GUILD_ID=your_guild_id_here
 # Optional audit log file
 # DISCORD_MCP_AUDIT_LOG_PATH=./data/discord-mcp-audit.log
 
+# Optional logging
+# LOG_LEVEL=INFO
+# LOG_STYLE=pretty
+# LOG_COLOR=true
+# ENABLE_LOGGING=true
+
+# Optional OpenTelemetry
+# OTEL_ENABLED=true
+# OTEL_SERVICE_NAME=discord-mcp
+# OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces
+# OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer token
+# OTEL_PROMETHEUS_PORT=9464
+# OTEL_PROMETHEUS_ENDPOINT=/metrics
+
 # Optional OAuth (HTTP mode)
 # DISCORD_CLIENT_ID=...
 # DISCORD_CLIENT_SECRET=...
@@ -109,6 +123,23 @@ When `MCP_HTTP_PORT` (or `PORT`) is set:
 - `GET /health`
 - `GET /oauth/discord/start`
 - `GET /oauth/discord/callback`
+
+## Logging
+
+Server logs use a shared Pino logger with compact one-line output (no ISO timestamp clutter in pretty mode).
+
+- `LOG_LEVEL` controls verbosity: `ERROR`, `WARN`, `INFO`, `DEBUG` (default `INFO`)
+- `LOG_STYLE` controls output shape: `pretty` or `json` (when unset, auto mode uses `pretty` for interactive terminals and dev scripts, otherwise `json`)
+- `LOG_COLOR` enables/disables ANSI colors (default `true`)
+- `ENABLE_LOGGING` disables all logs when set to `false` (default `true`)
+
+For stdio MCP mode, logs are written to stderr so protocol output on stdout remains clean.
+
+### OpenTelemetry
+
+- Traces are exported using OTLP HTTP (`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`).
+- Metrics are exposed via Prometheus exporter at `http://localhost:${OTEL_PROMETHEUS_PORT:-9464}${OTEL_PROMETHEUS_ENDPOINT:-/metrics}`.
+- Service metadata is controlled by `OTEL_SERVICE_NAME`.
 
 ## Typed HTTP Client (`hc`)
 
@@ -211,6 +242,6 @@ If you expect thousands of operations in the MCP registry, this is by design:
 ## Scripts
 
 - `npm run build` - compile TypeScript
-- `npm run dev` - build once, then run `tsc -w` + `node --watch`
+- `npm run dev` (or `bun run dev`) - build once, then run `tsc -w` + `node --watch` with forced pretty logs
 - `npm start` - run compiled stdio server
 - `npm run web` - run compiled Hono HTTP/SSE server on port 1455

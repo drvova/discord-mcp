@@ -2,16 +2,18 @@
     "name": "discord-mcp",
     "version": "0.0.1",
     "description": "Model Context Protocol (MCP) server for Discord API integration",
-    "main": "dist/src/index.js",
+    "main": "dist/src/bootstrap.js",
     "type": "module",
     "bin": {
-        "discord-mcp": "./dist/src/index.js"
+        "discord-mcp": "./dist/src/bootstrap.js"
     },
     "scripts": {
         "build": "tsc",
-        "dev": "npm run build && concurrently \"tsc -w --preserveWatchOutput\" \"node --watch dist/src/index.js\"",
-        "start": "node dist/src/index.js",
-        "web": "MCP_HTTP_PORT=1455 node dist/src/index.js",
+        "dev": "npm run dev:pretty",
+        "dev:pretty": "npm run build && cross-env LOG_STYLE=pretty concurrently --raw \"tsc -w --preserveWatchOutput\" \"node --watch dist/src/bootstrap.js\"",
+        "dev:json": "npm run build && cross-env LOG_STYLE=json concurrently --raw \"tsc -w --preserveWatchOutput\" \"node --watch dist/src/bootstrap.js\"",
+        "start": "node dist/src/bootstrap.js",
+        "web": "cross-env MCP_HTTP_PORT=1455 node dist/src/bootstrap.js",
         "prepare": "npm run build"
     },
     "repository": {
@@ -31,6 +33,12 @@
     },
     "homepage": "https://github.com/sashathelambo/discord-mcp#readme",
     "dependencies": {
+        "@opentelemetry/api": "^1.9.0",
+        "@opentelemetry/auto-instrumentations-node": "^0.66.0",
+        "@opentelemetry/exporter-prometheus": "^0.207.0",
+        "@opentelemetry/exporter-trace-otlp-http": "^0.207.0",
+        "@opentelemetry/resources": "^2.1.0",
+        "@opentelemetry/sdk-node": "^0.207.0",
         "@discordjs/opus": "^0.10.0",
         "@discordjs/voice": "^0.18.0",
         "@hono/node-server": "^1.19.9",
@@ -39,11 +47,14 @@
         "dotenv": "^17.2.0",
         "groq-sdk": "^0.34.0",
         "hono": "^4.11.9",
+        "pino": "^9.9.5",
+        "pino-pretty": "^13.1.2",
         "zod": "^3.25.76"
     },
     "devDependencies": {
         "@types/node": "^24.0.15",
         "concurrently": "^9.2.1",
+        "cross-env": "^7.0.3",
         "typescript": "^5.8.3"
     }
 }
