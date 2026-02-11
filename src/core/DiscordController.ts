@@ -2,18 +2,16 @@ import { DiscordService } from "../discord-service.js";
 import { ConfigManager } from "./ConfigManager.js";
 import { Logger } from "./Logger.js";
 import { ErrorHandler } from "./ErrorHandler.js";
+import { AppErrorCode } from "./errors.js";
 
 export class DiscordController {
-    private discordService: DiscordService;
-    private configManager: ConfigManager;
-    private logger: Logger;
+    private discordService: DiscordService | null = null;
+    private readonly configManager: ConfigManager;
+    private readonly logger: Logger;
 
     constructor() {
         this.configManager = ConfigManager.getInstance();
         this.logger = Logger.getInstance();
-
-        // These will be initialized in initialize()
-        this.discordService = null as any;
     }
 
     async initialize(): Promise<void> {
@@ -28,7 +26,7 @@ export class DiscordController {
             this.logger.info("Discord Controller initialized successfully");
         } catch (error) {
             this.logger.logError("Discord Controller initialization", error);
-            ErrorHandler.handle(error);
+            ErrorHandler.handle(error, AppErrorCode.Internal);
         }
     }
 
@@ -43,11 +41,17 @@ export class DiscordController {
             this.logger.info("Discord Controller destroyed successfully");
         } catch (error) {
             this.logger.logError("Discord Controller destruction", error);
-            ErrorHandler.handle(error);
+            ErrorHandler.handle(error, AppErrorCode.Internal);
         }
     }
 
     getDiscordService(): DiscordService {
+        if (!this.discordService) {
+            ErrorHandler.handle(
+                new Error("Discord service was requested before initialization."),
+                AppErrorCode.Internal,
+            );
+        }
         return this.discordService;
     }
 

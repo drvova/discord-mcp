@@ -9,6 +9,7 @@ import { RESPONSE_ALREADY_SENT } from "@hono/node-server/utils/response";
 import { z } from "zod";
 import { Logger } from "./core/Logger.js";
 import type { OAuthManager } from "./core/OAuthManager.js";
+import { AppErrorCode, toPublicErrorPayload } from "./core/errors.js";
 import type { AuditEvent, AuditRiskTier } from "./gateway/audit-log.js";
 import type {
     DiscordOperation,
@@ -290,16 +291,17 @@ export function createHttpApp(deps: HttpAppDependencies) {
                     200,
                 );
             } catch (error) {
+                const payload = toPublicErrorPayload(error, AppErrorCode.Internal);
                 return c.json(
                     {
                         jsonrpc: "2.0",
                         id: message.id,
                         error: {
                             code: -32000,
-                            message:
-                                error instanceof Error
-                                    ? error.message
-                                    : String(error),
+                            message: payload.message,
+                            data: {
+                                code: payload.code,
+                            },
                         },
                     },
                     200,

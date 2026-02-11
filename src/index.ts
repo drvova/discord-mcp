@@ -8,10 +8,12 @@ import {
     ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { serve } from "@hono/node-server";
+import type { AnyZodObject } from "zod";
 import { DiscordService } from "./discord-service.js";
 import { DiscordController } from "./core/DiscordController.js";
 import { Logger } from "./core/Logger.js";
 import { OAuthManager } from "./core/OAuthManager.js";
+import { AppErrorCode, toPublicErrorPayload } from "./core/errors.js";
 import { writeAuditEvent } from "./gateway/audit-log.js";
 import {
     getDiscordPackageSymbolsCatalog,
@@ -81,16 +83,6 @@ type ParsedDiscordManageCall = {
     riskTier: RiskTier;
 };
 
-type GenericSchema = {
-    parse: (value: unknown) => unknown;
-    shape?:
-        | Record<string, unknown>
-        | (() => Record<string, unknown>);
-    _def?: {
-        shape?: () => Record<string, unknown>;
-    };
-};
-
 type PreflightEvaluation = {
     payload: Record<string, unknown>;
     canExecute: boolean;
@@ -98,17 +90,12 @@ type PreflightEvaluation = {
     preflightToken: string;
 };
 
-const OPERATION_SCHEMA_BY_NAME: Record<string, GenericSchema> = {
-    [DISCORD_META_PACKAGES_OPERATION]:
-        schemas.DiscordMetaPackagesSchema as unknown as GenericSchema,
-    [DISCORD_META_SYMBOLS_OPERATION]:
-        schemas.DiscordMetaSymbolsSchema as unknown as GenericSchema,
-    [DISCORD_META_PREFLIGHT_OPERATION]:
-        schemas.DiscordMetaPreflightSchema as unknown as GenericSchema,
-    [DISCORD_EXEC_INVOKE_OPERATION]:
-        schemas.DiscordExecInvokeSchema as unknown as GenericSchema,
-    [DISCORD_EXEC_BATCH_OPERATION]:
-        schemas.DiscordExecBatchSchema as unknown as GenericSchema,
+const OPERATION_SCHEMA_BY_NAME: Record<DiscordOperation, AnyZodObject> = {
+    [DISCORD_META_PACKAGES_OPERATION]: schemas.DiscordMetaPackagesSchema,
+    [DISCORD_META_SYMBOLS_OPERATION]: schemas.DiscordMetaSymbolsSchema,
+    [DISCORD_META_PREFLIGHT_OPERATION]: schemas.DiscordMetaPreflightSchema,
+    [DISCORD_EXEC_INVOKE_OPERATION]: schemas.DiscordExecInvokeSchema,
+    [DISCORD_EXEC_BATCH_OPERATION]: schemas.DiscordExecBatchSchema,
 };
 
 function getOAuthManager(): OAuthManager {
@@ -139,7 +126,7 @@ async function initializeDiscord() {
     discordService = discordController.getDiscordService();
 }
 
-function getSchemaForOperation(operation: DiscordOperation): GenericSchema {
+function getSchemaForOperation(operation: DiscordOperation): AnyZodObject {
     const schema = OPERATION_SCHEMA_BY_NAME[operation];
     if (!schema) {
         throw new Error(`No schema is registered for operation '${operation}'.`);
@@ -147,22 +134,8 @@ function getSchemaForOperation(operation: DiscordOperation): GenericSchema {
     return schema;
 }
 
-function getSchemaKeyOrder(schema: GenericSchema): string[] {
-    const directShape =
-        typeof schema.shape === "function" ? schema.shape() : schema.shape;
-    if (directShape && typeof directShape === "object") {
-        return Object.keys(directShape);
-    }
-
-    const defShape = schema._def?.shape;
-    if (typeof defShape === "function") {
-        const shape = defShape();
-        if (shape && typeof shape === "object") {
-            return Object.keys(shape);
-        }
-    }
-
-    return [];
+function getSchemaKeyOrder(schema: AnyZodObject): string[] {
+    return Object.keys(schema.shape);
 }
 
 function coerceArgsToParams(
@@ -1271,10 +1244,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         );
     } catch (error) {
         status = "error";
-        const errorMessage =
-            error instanceof Error ? error.message : String(error);
+        const payload = toPublicErrorPayload(error, AppErrorCode.Internal);
         return {
-            content: [{ type: "text", text: `Error: ${errorMessage}` }],
+            content: [
+                {
+                    type: "text",
+                    text: `Error [${payload.code}]: ${payload.message}`,
+                },
+            ],
             isError: true,
         };
     } finally {

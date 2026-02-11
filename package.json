@@ -9,6 +9,8 @@
     },
     "scripts": {
         "build": "tsc",
+        "test": "npm run build && bash -lc 'shopt -s globstar nullglob; files=(dist/src/**/*.test.js); node --test \"${files[@]}\"'",
+        "test:watch": "npm run build && bash -lc 'shopt -s globstar nullglob; files=(dist/src/**/*.test.js); node --test --watch \"${files[@]}\"'",
         "dev": "npm run dev:pretty",
         "dev:pretty": "npm run build && cross-env LOG_STYLE=pretty concurrently --raw \"tsc -w --preserveWatchOutput\" \"node --watch dist/src/bootstrap.js\"",
         "dev:json": "npm run build && cross-env LOG_STYLE=json concurrently --raw \"tsc -w --preserveWatchOutput\" \"node --watch dist/src/bootstrap.js\"",
