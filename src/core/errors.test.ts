@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { expect, test } from "@rstest/core";
 import { AppError, AppErrorCode, normalizeUnknownError, toPublicErrorPayload } from "./errors.js";
 
 test("normalizeUnknownError passes through AppError", () => {
@@ -8,22 +7,22 @@ test("normalizeUnknownError passes through AppError", () => {
         message: "policy block",
     });
     const normalized = normalizeUnknownError(original);
-    assert.equal(normalized, original);
-    assert.equal(normalized.code, AppErrorCode.Policy);
+    expect(normalized).toBe(original);
+    expect(normalized.code).toBe(AppErrorCode.Policy);
 });
 
 test("normalizeUnknownError wraps standard Error deterministically", () => {
     const normalized = normalizeUnknownError(new Error("boom"));
-    assert.equal(normalized.code, AppErrorCode.Internal);
-    assert.equal(normalized.message, "boom");
+    expect(normalized.code).toBe(AppErrorCode.Internal);
+    expect(normalized.message).toBe("boom");
 });
 
 test("normalizeUnknownError infers validation code from Zod-like errors", () => {
     const zodLike = new Error("invalid schema");
     zodLike.name = "ZodError";
     const normalized = normalizeUnknownError(zodLike);
-    assert.equal(normalized.code, AppErrorCode.Validation);
-    assert.equal(normalized.message, "invalid schema");
+    expect(normalized.code).toBe(AppErrorCode.Validation);
+    expect(normalized.message).toBe("invalid schema");
 });
 
 test("toPublicErrorPayload returns stable serializable payload", () => {
@@ -33,7 +32,7 @@ test("toPublicErrorPayload returns stable serializable payload", () => {
             message: "not allowed",
         }),
     );
-    assert.deepEqual(payload, {
+    expect(payload).toEqual({
         code: AppErrorCode.Permission,
         message: "not allowed",
     });

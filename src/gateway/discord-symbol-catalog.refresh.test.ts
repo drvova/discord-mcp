@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { expect, test } from "@rstest/core";
 import {
     calculateDiscordCatalogDiff,
     type DiscordCatalogDiffInput,
@@ -66,7 +65,7 @@ test("calculateDiscordCatalogDiff reports package and symbol changes determinist
 
     const diff = calculateDiscordCatalogDiff(previous, next);
 
-    assert.deepEqual(diff.changedPackages, [
+    expect(diff.changedPackages).toEqual([
         {
             packageAlias: "discordjs",
             packageName: "discord.js",
@@ -88,11 +87,11 @@ test("calculateDiscordCatalogDiff reports package and symbol changes determinist
         },
     ]);
 
-    assert.equal(diff.addedSymbols.length, 1);
-    assert.equal(diff.addedSymbols[0]?.name, "GatewayIntentBits");
-    assert.equal(diff.removedSymbols.length, 1);
-    assert.equal(diff.removedSymbols[0]?.name, "TextChannel#send");
-    assert.equal(diff.kindCountsDelta.enum, 1);
-    assert.equal(diff.kindCountsDelta.function, -1);
-    assert.equal(diff.kindCountsDelta.class, 0);
+    expect(diff.addedSymbols.length).toBe(1);
+    expect(diff.addedSymbols[0]?.name).toBe("GatewayIntentBits");
+    expect(diff.removedSymbols.length).toBe(1);
+    expect(diff.removedSymbols[0]?.name).toBe("TextChannel#send");
+    expect(diff.kindCountsDelta.enum).toBe(1);
+    expect(diff.kindCountsDelta.function).toBe(-1);
+    expect(diff.kindCountsDelta.class).toBe(0);
 });

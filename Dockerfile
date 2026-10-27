@@ -1,15 +1,15 @@
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
 COPY package*.json ./
-COPY tsconfig.json ./
+COPY tsconfig.json rslib.config.ts ./
 COPY src ./src
 
 RUN npm ci
 RUN npm run build
 
-FROM node:20-alpine
+FROM node:22-alpine
 
 WORKDIR /app
 
@@ -35,4 +35,4 @@ EXPOSE 3000
 
 # Use dumb-init to handle signals properly for stdio transport
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "dist/src/bootstrap.js"]
+CMD ["node", "dist/bootstrap.js"]

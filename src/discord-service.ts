@@ -285,6 +285,7 @@ export class DiscordService {
 
             throw new Error(
                 `Token switch failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+                { cause: error },
             );
         }
     }
@@ -389,9 +390,9 @@ export class DiscordService {
                         | "export"
                         | "instance"
                         | "static"
-                        | "metadata" = "metadata";
+                        | "metadata";
                     let targetLabel = "export";
-                    let resolvedTarget: unknown = undefined;
+                    let resolvedTarget: unknown;
                     let classNameForInvocation: string | undefined;
 
                     if (instanceMatch) {
@@ -622,6 +623,7 @@ export class DiscordService {
                     } catch (error) {
                         throw new Error(
                             `Invocation failed for '${symbol}': ${error instanceof Error ? error.message : String(error)}`,
+                            { cause: error },
                         );
                     }
 

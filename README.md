@@ -96,7 +96,7 @@ for (const n of new Set(refs)) {
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 22.12+
 - npm
 - Discord bot token
 
@@ -258,10 +258,16 @@ client.user.tag
 
 ## Scripts
 
-- `npm run build` - compile TypeScript
-- `npm run dev` (or `bun run dev`) - build once, then run `tsc -w` + `node --watch` with forced pretty logs
-- `npm start` - run compiled stdio server
-- `npm run web` - run compiled Hono HTTP/SSE server on port 1455
+The toolchain is [Rstack](https://rspack.rs): Rslib builds, Rstest tests, Rslint lints and type-checks.
+
+- `npm run build` - build `src/` to `dist/` with Rslib (bundleless ESM, one output file per source module)
+- `npm run dev` (or `bun run dev`) - build once, then run `rslib build --watch` + `node --watch dist/bootstrap.js` with forced pretty logs
+- `npm start` - run the built stdio server
+- `npm run web` - run the built Hono HTTP/SSE server on port 1455
+- `npm test` - build, then run the test suite with Rstest (some tests spawn the built server modules)
+- `npm run lint` - lint with Rslint
+- `npm run typecheck` - type-check with Rslint (TypeScript's native compiler)
+- `npm run check` - lint and type-check in one pass
 
 ## Codex + GH CLI Notes
 

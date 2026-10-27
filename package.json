@@ -2,21 +2,30 @@
     "name": "discord-mcp",
     "version": "0.0.1",
     "description": "Model Context Protocol (MCP) server for Discord API integration",
-    "main": "dist/src/bootstrap.js",
+    "main": "dist/bootstrap.js",
     "type": "module",
-    "bin": {
-        "discord-mcp": "./dist/src/bootstrap.js"
+    "engines": {
+        "node": ">=22.12"
     },
+    "bin": {
+        "discord-mcp": "./dist/bootstrap.js"
+    },
+    "files": [
+        "dist"
+    ],
     "scripts": {
-        "build": "tsc",
-        "test": "npm run build && bash -lc 'shopt -s globstar nullglob; files=(dist/src/**/*.test.js); node --test \"${files[@]}\"'",
-        "test:watch": "npm run build && bash -lc 'shopt -s globstar nullglob; files=(dist/src/**/*.test.js); node --test --watch \"${files[@]}\"'",
+        "build": "rslib build",
+        "test": "rslib build && rstest run",
+        "test:watch": "rslib build && rstest watch",
+        "lint": "rslint",
+        "typecheck": "rslint --type-check-only",
+        "check": "rslint --type-check",
         "dev": "npm run dev:pretty",
-        "dev:pretty": "npm run build && cross-env LOG_STYLE=pretty concurrently --raw \"tsc -w --preserveWatchOutput\" \"node --watch dist/src/bootstrap.js\"",
-        "dev:json": "npm run build && cross-env LOG_STYLE=json concurrently --raw \"tsc -w --preserveWatchOutput\" \"node --watch dist/src/bootstrap.js\"",
-        "start": "node dist/src/bootstrap.js",
-        "web": "cross-env MCP_HTTP_PORT=1455 node dist/src/bootstrap.js",
-        "prepare": "npm run build"
+        "dev:pretty": "rslib build && cross-env LOG_STYLE=pretty concurrently --raw \"rslib build --watch\" \"node --watch dist/bootstrap.js\"",
+        "dev:json": "rslib build && cross-env LOG_STYLE=json concurrently --raw \"rslib build --watch\" \"node --watch dist/bootstrap.js\"",
+        "start": "node dist/bootstrap.js",
+        "web": "cross-env MCP_HTTP_PORT=1455 node dist/bootstrap.js",
+        "prepare": "rslib build"
     },
     "repository": {
         "type": "git",
@@ -54,9 +63,11 @@
         "zod": "^3.25.76"
     },
     "devDependencies": {
+        "@rslib/core": "^1.0.4",
+        "@rslint/core": "^0.9.5",
+        "@rstest/core": "^0.12.5",
         "@types/node": "^24.0.15",
         "concurrently": "^9.2.1",
-        "cross-env": "^7.0.3",
-        "typescript": "^5.8.3"
+        "cross-env": "^7.0.3"
     }
 }

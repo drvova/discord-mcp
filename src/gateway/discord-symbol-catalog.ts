@@ -1060,6 +1060,7 @@ async function buildCatalog(
             if (runtimePackage.packageName === "discord.js") {
                 throw new Error(
                     `Unable to import required runtime package 'discord.js': ${error instanceof Error ? error.message : String(error)}`,
+                    { cause: error },
                 );
             }
             continue;

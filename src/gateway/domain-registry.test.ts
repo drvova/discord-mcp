@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { expect, test } from "@rstest/core";
 import {
     DISCORD_EXEC_BATCH_OPERATION,
     DISCORD_EXEC_INVOKE_OPERATION,
@@ -18,70 +17,49 @@ import {
 
 test("resolveOperation normalizes case and whitespace", () => {
     const resolved = resolveOperation("  DISCORD.META.SYMBOLS ");
-    assert.equal(resolved, DISCORD_META_SYMBOLS_OPERATION);
+    expect(resolved).toBe(DISCORD_META_SYMBOLS_OPERATION);
 });
 
 test("resolveOperation rejects unknown operations", () => {
-    assert.throws(
-        () => resolveOperation("discord.meta.legacy"),
-        /Unsupported operation/,
-    );
+    expect(() => resolveOperation("discord.meta.legacy")).toThrow(/Unsupported operation/);
 });
 
 test("resolveDomainMethod validates accepted methods", () => {
-    assert.equal(resolveDomainMethod("AUTOMATION.READ"), "automation.read");
-    assert.equal(resolveDomainMethod(" automation.write "), "automation.write");
+    expect(resolveDomainMethod("AUTOMATION.READ")).toBe("automation.read");
+    expect(resolveDomainMethod(" automation.write ")).toBe("automation.write");
 });
 
 test("resolveOperationForMethod enforces read/write boundaries", () => {
-    assert.equal(
-        resolveOperationForMethod("automation.read", DISCORD_META_PACKAGES_OPERATION),
-        DISCORD_META_PACKAGES_OPERATION,
-    );
-    assert.equal(
-        resolveOperationForMethod("automation.write", DISCORD_EXEC_INVOKE_OPERATION),
-        DISCORD_EXEC_INVOKE_OPERATION,
-    );
-    assert.throws(
-        () =>
+    expect(resolveOperationForMethod("automation.read", DISCORD_META_PACKAGES_OPERATION)).toBe(DISCORD_META_PACKAGES_OPERATION);
+    expect(resolveOperationForMethod("automation.write", DISCORD_EXEC_INVOKE_OPERATION)).toBe(DISCORD_EXEC_INVOKE_OPERATION);
+    expect(() =>
             resolveOperationForMethod(
                 "automation.read",
                 DISCORD_EXEC_BATCH_OPERATION,
-            ),
-        /is not valid for method/,
-    );
+            )).toThrow(/is not valid for method/);
 });
 
 test("getDomainMethodForOperation returns deterministic routing", () => {
-    assert.equal(
-        getDomainMethodForOperation(DISCORD_META_PREFLIGHT_OPERATION),
-        "automation.read",
-    );
-    assert.equal(
-        getDomainMethodForOperation(DISCORD_META_REFRESH_OPERATION),
-        "automation.read",
-    );
-    assert.equal(
-        getDomainMethodForOperation(DISCORD_EXEC_INVOKE_OPERATION),
-        "automation.write",
-    );
+    expect(getDomainMethodForOperation(DISCORD_META_PREFLIGHT_OPERATION)).toBe("automation.read");
+    expect(getDomainMethodForOperation(DISCORD_META_REFRESH_OPERATION)).toBe("automation.read");
+    expect(getDomainMethodForOperation(DISCORD_EXEC_INVOKE_OPERATION)).toBe("automation.write");
 });
 
 test("meta and exec operation predicates are accurate", () => {
-    assert.equal(isDiscordMetaOperation(DISCORD_META_SYMBOLS_OPERATION), true);
-    assert.equal(isDiscordMetaOperation(DISCORD_EXEC_INVOKE_OPERATION), false);
-    assert.equal(isDiscordExecOperation(DISCORD_EXEC_BATCH_OPERATION), true);
-    assert.equal(isDiscordExecOperation(DISCORD_META_PACKAGES_OPERATION), false);
+    expect(isDiscordMetaOperation(DISCORD_META_SYMBOLS_OPERATION)).toBe(true);
+    expect(isDiscordMetaOperation(DISCORD_EXEC_INVOKE_OPERATION)).toBe(false);
+    expect(isDiscordExecOperation(DISCORD_EXEC_BATCH_OPERATION)).toBe(true);
+    expect(isDiscordExecOperation(DISCORD_META_PACKAGES_OPERATION)).toBe(false);
 });
 
 test("getOperationsForMethod returns the exact allowed operation set", () => {
-    assert.deepEqual(getOperationsForMethod("automation.read"), [
+    expect(getOperationsForMethod("automation.read")).toEqual([
         DISCORD_META_PACKAGES_OPERATION,
         DISCORD_META_SYMBOLS_OPERATION,
         DISCORD_META_PREFLIGHT_OPERATION,
         DISCORD_META_REFRESH_OPERATION,
     ]);
-    assert.deepEqual(getOperationsForMethod("automation.write"), [
+    expect(getOperationsForMethod("automation.write")).toEqual([
         DISCORD_EXEC_INVOKE_OPERATION,
         DISCORD_EXEC_BATCH_OPERATION,
     ]);

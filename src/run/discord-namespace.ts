@@ -143,7 +143,7 @@ function discordJsDocIndex(): Map<string, string> {
     };
     walk(root);
 
-    const classPattern = /^(?:class|  class)\s+([A-Za-z_$][\w$]*)/gm;
+    const classPattern = /^(?: {2})?class\s+([A-Za-z_$][\w$]*)/gm;
     const docPattern =
         /\/\*\*((?:(?!\*\/)[\s\S])*?)\*\/\s*\n\s*(?:(class)\s+([A-Za-z_$][\w$]*)|this\.([A-Za-z_$][\w$]*)\s*=|(?:static\s+)?(?:async\s+)?(?:get\s+|set\s+)?\*?([A-Za-z_$][\w$]*)\s*\()/g;
 
