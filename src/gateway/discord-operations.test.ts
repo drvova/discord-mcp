@@ -57,5 +57,5 @@ test("unknown operations and invalid params are rejected", () => {
             identityId: "x",
             operation: "discord.meta.preflight",
             params: {},
-        })).toThrow();
+        })).toThrow(/Invalid params for discord\.meta\.preflight:\n✖ .*\n {2}→ at packageAlias/);
 });
