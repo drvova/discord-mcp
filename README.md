@@ -40,6 +40,7 @@ await ch.send(vars.body);
 | `packages()`, `symbols(query)`, `pkg(alias)`, `discord` | What the project offers: loaded Discord runtime packages, their symbols, their exports, the discord.js module |
 | `describe(x)` | Live capabilities (for a client: readiness, user, intents, guilds) plus every member's signature and one-line doc, taken from discord.js's own JSDoc |
 | `ops.packages / symbols / preflight / refresh / invoke / batch(params)` | The earlier structured operations, now plain functions |
+| `mcp.<server>.<tool>(args)`, `mcpServers()`, `mcpConnect(name, config)`, `mcpDisconnect(name)` | Other MCP servers' tools as functions (see below) |
 | `vars`, `print`, `console`, `fetch`, `require`, `sleep`, `man()` | I/O and utilities |
 | `kept()`, `kept(name)`, `forget(name)` | Saved definitions |
 
@@ -48,6 +49,38 @@ await ch.send(vars.body);
 After each successful call, each top-level **definition** — a `function` or `class` declaration, or a `const` bound to a literal, function or class — is saved as its own file and loaded back when the server starts. Each saved unit loads in isolation, so a broken one is reported by `kept()` and never stops the server. Statements that do work (calls, `let`, `const x = await …`) are never saved or replayed. `forget(name)` deletes a definition.
 
 Saved definitions live in `DISCORD_MCP_KEPT_DIR`, defaulting to `$XDG_CONFIG_HOME/discord-mcp/kept` (`~/.config/discord-mcp/kept`). Mount it as a volume to keep the model's tooling across container restarts.
+
+### Other MCP servers as functions (code mode)
+
+Other MCP servers are not re-advertised as tools. Their tools become async functions inside the namespace — the "code mode" / code-execution-with-MCP pattern — so the model composes several calls in one `run`, filters results in code, and prints only what it needs:
+
+```js
+// GitHub issues mentioned in the last 50 messages of a channel
+const channel = await client.channels.fetch("123456789012345678");
+const refs = [...(await channel.messages.fetch({ limit: 50 })).values()]
+  .flatMap((m) => [...m.content.matchAll(/#(\d+)/g)].map((x) => Number(x[1])));
+for (const n of new Set(refs)) {
+  const issue = await mcp.github.get_issue({ owner: "acme", repo: "app", issue_number: n });
+  print(`#${n} ${issue.state} ${issue.title}`);
+}
+```
+
+- A call resolves to the tool's structured content, or its text (parsed when it is JSON); a tool error is thrown.
+- Tool names become identifiers (`get-issue` → `get_issue`). `describe(mcp.github)` lists each tool's signature, generated from its input schema, with its description.
+- Servers listed in `DISCORD_MCP_UPSTREAMS` connect at startup. Its value is inline JSON or a path to a JSON file, in the usual `mcpServers` shape. `${VAR}` in strings is read from the server's environment, so secrets stay out of the file:
+
+  ```json
+  {
+    "mcpServers": {
+      "github": { "url": "https://api.githubcopilot.com/mcp/", "headers": { "Authorization": "Bearer ${GITHUB_TOKEN}" } },
+      "files": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/data"] }
+    }
+  }
+  ```
+
+  `url` servers use streamable HTTP and fall back to SSE (force one with `"type": "http"` or `"sse"`); `command` servers use stdio. An unreachable server is reported by `mcpServers()` and does not stop startup.
+- The model can connect more at runtime with `mcpConnect(name, config)`; those last until the server restarts. Kept helpers that wrap `mcp.*` tools are saved like any other definition and work again once their server reconnects.
+- Upstream tools run with whatever credentials you configure for them, and the code that calls them runs with the server's full authority — the same sandboxing guidance applies.
 
 ### Runtime
 
@@ -106,6 +139,9 @@ DISCORD_GUILD_ID=your_guild_id_here
 
 # Optional: where the run tool saves the model's definitions
 # DISCORD_MCP_KEPT_DIR=~/.config/discord-mcp/kept
+
+# Optional: other MCP servers whose tools become mcp.<server>.<tool>() functions
+# DISCORD_MCP_UPSTREAMS=./mcp-servers.json
 
 # Optional risk policy override (ops.* functions only)
 # DISCORD_MCP_BLOCK_HIGH_RISK=true

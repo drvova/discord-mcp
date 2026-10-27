@@ -23,6 +23,7 @@ import type {
     LocalEncryptedIdentityStore,
 } from "../identity/local-encrypted-identity-store.js";
 import { CodeHarness, type DescribeHooks, type RunResult } from "./harness.js";
+import { McpUpstreams, type UpstreamConfig } from "./mcp-upstreams.js";
 
 // Seeds the run tool's namespace with the project's Discord API: identities
 // (the working objects), the bound discord.js client, the runtime package
@@ -34,6 +35,7 @@ export type DiscordNamespaceDeps = {
     getService: () => DiscordService | undefined;
     identityStore: LocalEncryptedIdentityStore;
     persistDir?: string;
+    upstreams?: McpUpstreams;
     onLoadError?: (name: string, error: unknown) => void;
 };
 
@@ -41,6 +43,7 @@ export type DiscordHarness = {
     harness: CodeHarness;
     bind: (identityId: string) => Promise<discordJs.Client>;
     bound: () => BoundIdentity | undefined;
+    upstreams: McpUpstreams;
     run: (
         code: string,
         options?: { identity?: string; vars?: Record<string, string> },
@@ -80,6 +83,19 @@ What the project offers
   ops.packages|symbols|preflight|refresh|invoke|batch(params)
                              -> the older structured operations, as functions
   service                    -> the underlying DiscordService
+
+Other MCP servers, as functions (code mode)
+  mcp.<server>.<tool>(args)  -> call a connected MCP server's tool. Resolves to its
+                                structured result, or its text (parsed if JSON);
+                                throws on tool errors. Compose calls in code and
+                                print only what you need.
+  describe(mcp.<server>)     -> every tool's signature (from its input schema) and doc
+  mcpServers()               -> [{ name, transport, connected, tools, error? }]
+  mcpConnect(name, config)   -> connect one now: { url, headers? } (streamable HTTP,
+                                falls back to SSE) or { command, args?, env? } (stdio)
+  mcpDisconnect(name)
+  Servers in DISCORD_MCP_UPSTREAMS connect at startup. Kept helpers that wrap
+  mcp.* tools keep working after a restart once their server reconnects.
 
 Introspection and I/O
   describe(x)       -> live capabilities + members with signatures and docs
@@ -201,10 +217,14 @@ export function createDiscordHarness(deps: DiscordNamespaceDeps): DiscordHarness
         return service;
     };
 
+    const upstreams = deps.upstreams || new McpUpstreams();
     const harness = new CodeHarness({
         persistDir: deps.persistDir,
         manual: () => DISCORD_NAMESPACE_MANUAL,
-        describe: describeHooks,
+        describe: {
+            ...describeHooks,
+            functionInfo: (fn) => upstreams.functionInfo(fn),
+        },
         onLoadError: deps.onLoadError,
     });
 
@@ -282,6 +302,11 @@ export function createDiscordHarness(deps: DiscordNamespaceDeps): DiscordHarness
                 typeof query === "string" ? { query } : query,
             ),
         pkg: (alias: string) => getDiscordRuntimeExportsByAlias(alias),
+        mcp: upstreams.namespace,
+        mcpServers: () => upstreams.list(),
+        mcpConnect: (name: string, config: UpstreamConfig) =>
+            upstreams.connect(name, config),
+        mcpDisconnect: (name: string) => upstreams.disconnect(name),
         ops: Object.freeze({
             packages: operation(DISCORD_META_PACKAGES_OPERATION),
             symbols: operation(DISCORD_META_SYMBOLS_OPERATION),
@@ -302,6 +327,7 @@ export function createDiscordHarness(deps: DiscordNamespaceDeps): DiscordHarness
                 return { ok: false, text: message, output: "", error: message, kept: [] };
             }
         }
+        await upstreams.ready();
         publishBinding();
         return harness.run(code, { vars: options.vars });
     };
@@ -310,6 +336,7 @@ export function createDiscordHarness(deps: DiscordNamespaceDeps): DiscordHarness
         harness,
         bind,
         bound: () => boundIdentity,
+        upstreams,
         run,
     };
 }

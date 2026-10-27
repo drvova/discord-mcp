@@ -27,6 +27,7 @@ import {
     createDiscordHarness,
     DISCORD_NAMESPACE_MANUAL,
 } from "./run/discord-namespace.js";
+import { loadUpstreamConfigs, McpUpstreams } from "./run/mcp-upstreams.js";
 import {
     listTools,
     parseRunArguments,
@@ -54,9 +55,15 @@ const identityStore = new LocalEncryptedIdentityStore();
 const identityWorkerPool = new IdentityWorkerPool();
 const logger = Logger.getInstance().child("server");
 
+const upstreams = new McpUpstreams({
+    onError: (name, error) =>
+        logger.warn(`Upstream MCP server '${name}' unavailable`, error),
+});
+
 const discordHarness = createDiscordHarness({
     getService: () => discordService,
     identityStore,
+    upstreams,
     onLoadError: (name, error) =>
         logger.warn(`Kept definition '${name}' failed to load`, error),
 });
@@ -207,6 +214,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 async function main() {
     try {
+        try {
+            const upstreamConfigs = loadUpstreamConfigs();
+            const names = Object.keys(upstreamConfigs);
+            if (names.length > 0) {
+                logger.info(`Connecting upstream MCP servers as functions: ${names.join(", ")}`);
+                void upstreams.connectAll(upstreamConfigs);
+            }
+        } catch (error) {
+            logger.warn(
+                `DISCORD_MCP_UPSTREAMS ignored: ${error instanceof Error ? error.message : String(error)}`,
+            );
+        }
         await initializeDiscord();
         identityStore.ensureDefaultsFromEnv();
         if (discordService) {
@@ -305,6 +324,7 @@ process.on("uncaughtException", (error) => {
 
 process.on("SIGINT", async () => {
     logger.info("Shutting down Discord MCP server...");
+    await upstreams.closeAll();
     if (discordService) {
         await discordService.destroy();
     }
@@ -313,6 +333,7 @@ process.on("SIGINT", async () => {
 
 process.on("SIGTERM", async () => {
     logger.info("Shutting down Discord MCP server...");
+    await upstreams.closeAll();
     if (discordService) {
         await discordService.destroy();
     }

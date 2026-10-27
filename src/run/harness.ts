@@ -50,6 +50,11 @@ export type DescribeHooks = {
     capabilities?: (value: object) => Record<string, unknown> | undefined;
     // A one-line doc for `owner#member` when the function source has none.
     memberDoc?: (owner: string, member: string) => string | undefined;
+    // Overrides what is reported for a function whose source says nothing
+    // useful (e.g. a wrapper around a remote tool): at least its signature.
+    functionInfo?: (
+        fn: Function,
+    ) => ({ signature: string; doc?: string } & Record<string, unknown>) | undefined;
 };
 
 export type CodeHarnessOptions = {
@@ -437,12 +442,13 @@ function describeMembers(
                     doc: doc(),
                 });
             } else if (typeof descriptor.value === "function") {
+                const info = hooks?.functionInfo?.(descriptor.value);
                 members.push({
                     name,
                     kind: "method",
-                    signature: signatureOf(name, descriptor.value),
+                    signature: info?.signature ?? signatureOf(name, descriptor.value),
                     from: owner,
-                    doc: doc(descriptor.value),
+                    doc: info ? info.doc : doc(descriptor.value),
                 });
             } else {
                 members.push({
@@ -484,6 +490,10 @@ export function describeValue(value: unknown, hooks?: DescribeHooks): unknown {
                     ? describeMembers(fn.prototype, hooks)
                     : [],
             });
+        }
+        const info = hooks?.functionInfo?.(fn);
+        if (info) {
+            return withoutUndefined({ type: "function", ...info });
         }
         return withoutUndefined({
             type: "function",
