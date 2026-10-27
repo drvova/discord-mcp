@@ -1,0 +1,232 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
+import { CodeHarness, defaultPersistDir, transformCode } from "./harness.js";
+
+const harnessModuleUrl = new URL("./harness.js", import.meta.url).href;
+
+function tempDir(t: test.TestContext): string {
+    const dir = mkdtempSync(join(tmpdir(), "discord-mcp-kept-"));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    return dir;
+}
+
+// Runs code in a brand-new Node process whose harness points at `dir`.
+function runInFreshProcess(dir: string, code: string): { ok: boolean; text: string } {
+    const script = `
+        const { CodeHarness } = await import(${JSON.stringify(harnessModuleUrl)});
+        const harness = new CodeHarness({ persistDir: ${JSON.stringify(dir)} });
+        const result = await harness.run(${JSON.stringify(code)});
+        process.stdout.write(JSON.stringify({ ok: result.ok, text: result.text }));
+    `;
+    const stdout = execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+        cwd: fileURLToPath(new URL(".", import.meta.url)),
+        encoding: "utf8",
+    });
+    return JSON.parse(stdout) as { ok: boolean; text: string };
+}
+
+test("empty code returns the manual", async (t) => {
+    const harness = new CodeHarness({
+        persistDir: tempDir(t),
+        manual: () => "the manual",
+    });
+    const result = await harness.run("   ");
+    assert.equal(result.ok, true);
+    assert.equal(result.text, "the manual");
+});
+
+test("returns printed output plus the last expression value", async (t) => {
+    const harness = new CodeHarness({ persistDir: tempDir(t) });
+    const result = await harness.run(
+        "const n = await Promise.resolve(20); print('half', n / 2); n + 1",
+    );
+    assert.equal(result.ok, true);
+    assert.equal(result.value, 21);
+    assert.equal(result.text, "half 10\n21");
+});
+
+test("a helper defined in one call is reusable in the next", async (t) => {
+    const harness = new CodeHarness({ persistDir: tempDir(t) });
+    const defined = await harness.run(
+        "function double(x) { return x * 2 }\nconst offset = 1;\nlet scratch = 5;",
+    );
+    assert.equal(defined.ok, true);
+
+    const reused = await harness.run("double(scratch) + offset");
+    assert.equal(reused.ok, true);
+    assert.equal(reused.value, 11);
+});
+
+test("helpers can be redefined, and work is never persisted", async (t) => {
+    const dir = tempDir(t);
+    const harness = new CodeHarness({ persistDir: dir });
+    await harness.run("const greet = (name) => `hi ${name}`;");
+    await harness.run("const greet = (name) => `hello ${name}`;");
+    assert.equal((await harness.run("greet('ada')")).value, "hello ada");
+
+    await harness.run(
+        "const rolled = Math.random(); let counter = 1; var legacy = 2; print('side effect');",
+    );
+    assert.deepEqual(readdirSync(dir).sort(), ["greet.js"]);
+
+    // Rebinding a kept name to work drops the stale saved definition.
+    await harness.run("const greet = Math.random();");
+    assert.deepEqual(readdirSync(dir), []);
+});
+
+test("definitions survive a restart in a fresh process; forget removes them", async (t) => {
+    const dir = tempDir(t);
+    const harness = new CodeHarness({ persistDir: dir });
+    const defined = await harness.run(
+        [
+            "function area(w, h) { return w * h }",
+            "class Counter { constructor() { this.n = 0 } inc() { return ++this.n } }",
+            "const UNITS = { metric: 'm', imperial: 'ft' };",
+        ].join("\n"),
+    );
+    assert.deepEqual(defined.kept, ["area", "Counter", "UNITS"]);
+
+    const reloaded = runInFreshProcess(
+        dir,
+        "const c = new Counter(); c.inc(); `${area(3, 4)}${UNITS.metric}:${c.inc()}`",
+    );
+    assert.deepEqual(reloaded, { ok: true, text: "12m:2" });
+
+    assert.equal((await harness.run("forget('area')")).value, true);
+    assert.equal((await harness.run("typeof area")).value, "undefined");
+
+    const afterForget = runInFreshProcess(dir, "[typeof area, typeof Counter]");
+    assert.equal(afterForget.text, "[ 'undefined', 'function' ]");
+});
+
+test("a broken saved definition does not stop the others from loading", async (t) => {
+    const dir = tempDir(t);
+    writeFileSync(join(dir, "broken.js"), "function broken( {\n");
+    writeFileSync(join(dir, "fine.js"), "function fine() { return 'ok' }\n");
+
+    const failures: string[] = [];
+    const harness = new CodeHarness({
+        persistDir: dir,
+        onLoadError: (name) => failures.push(name),
+    });
+
+    assert.deepEqual(failures, ["broken"]);
+    assert.equal((await harness.run("fine()")).value, "ok");
+    const kept = harness.kept() as Array<{ name: string; loaded: boolean }>;
+    assert.deepEqual(
+        kept.map((entry) => [entry.name, entry.loaded]),
+        [
+            ["broken", false],
+            ["fine", true],
+        ],
+    );
+});
+
+test("errors are reported without breaking the namespace", async (t) => {
+    const harness = new CodeHarness({ persistDir: tempDir(t) });
+    await harness.run("const keep = 1;");
+
+    const thrown = await harness.run("print('before'); throw new Error('boom')");
+    assert.equal(thrown.ok, false);
+    assert.match(thrown.text, /before\nError: boom/);
+
+    const syntax = await harness.run("this is not js(");
+    assert.equal(syntax.ok, false);
+    assert.match(syntax.text, /SyntaxError/);
+
+    const clash = await harness.run("function describe() {}");
+    assert.equal(clash.ok, false);
+    assert.match(clash.text, /built-in/);
+
+    assert.equal((await harness.run("keep")).value, 1);
+});
+
+test("vars passes named strings into the call", async (t) => {
+    const harness = new CodeHarness({ persistDir: tempDir(t) });
+    const payload = "line one\n`quoted` ${not interpolated}";
+    const result = await harness.run("vars.body.length", { vars: { body: payload } });
+    assert.equal(result.value, payload.length);
+    assert.equal((await harness.run("Object.keys(vars).length")).value, 0);
+});
+
+test("describe reports signatures, docs and members", async (t) => {
+    const harness = new CodeHarness({
+        persistDir: tempDir(t),
+        describe: {
+            memberDoc: (owner, member) =>
+                owner === "Shape" && member === "grow" ? "Grows the shape." : undefined,
+            capabilities: (value) =>
+                (value as { kind?: string }).kind === "shape" ? { live: true } : undefined,
+        },
+    });
+    await harness.run(
+        [
+            "function scale(factor, by = 2) {",
+            "    // Scales a value.",
+            "    return factor * by",
+            "}",
+            "class Shape { constructor(size) { this.kind = 'shape'; this.size = size } grow(by) { this.size += by } get double() { return this.size * 2 } }",
+        ].join("\n"),
+    );
+
+    assert.deepEqual((await harness.run("describe(scale)")).value, {
+        type: "function",
+        signature: "scale(factor, by = 2)",
+        doc: "Scales a value.",
+    });
+
+    const shape = (await harness.run("describe(new Shape(1))")).value as {
+        capabilities: unknown;
+        members: Array<Record<string, unknown>>;
+    };
+    assert.deepEqual(shape.capabilities, { live: true });
+    assert.deepEqual(
+        shape.members.map((member) => [member.name, member.kind, member.signature, member.doc]),
+        [
+            ["kind", "property", undefined, undefined],
+            ["size", "property", undefined, undefined],
+            ["grow", "method", "grow(by)", "Grows the shape."],
+            ["double", "getter", undefined, undefined],
+        ],
+    );
+});
+
+test("transformCode only keeps pure top-level definitions", () => {
+    const { declared, definitions } = transformCode(
+        [
+            "const A = 1, B = [A];",
+            "const C = { f() {} };",
+            "const { d } = { d: 1 };",
+            "async function e() {}",
+            "if (true) { function nested() {} }",
+        ].join("\n"),
+    );
+    assert.deepEqual(declared, ["A", "B", "C", "d", "e"]);
+    assert.deepEqual(
+        definitions.map((definition) => [definition.name, definition.kind]),
+        [
+            ["A", "const"],
+            ["C", "const"],
+            ["e", "function"],
+        ],
+    );
+});
+
+test("the default persist location honours DISCORD_MCP_KEPT_DIR", () => {
+    const previous = process.env.DISCORD_MCP_KEPT_DIR;
+    process.env.DISCORD_MCP_KEPT_DIR = "/tmp/somewhere/kept";
+    try {
+        assert.equal(defaultPersistDir(), "/tmp/somewhere/kept");
+    } finally {
+        if (previous === undefined) {
+            delete process.env.DISCORD_MCP_KEPT_DIR;
+        } else {
+            process.env.DISCORD_MCP_KEPT_DIR = previous;
+        }
+    }
+});

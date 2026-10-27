@@ -161,6 +161,14 @@ export class DiscordService {
         return { ...this.currentAuthConfig };
     }
 
+    getClient(): Client {
+        return this.client;
+    }
+
+    isClientReady(): boolean {
+        return this.isReady;
+    }
+
     getBotApplicationId(): string | undefined {
         return this.client.application?.id || this.client.user?.id;
     }

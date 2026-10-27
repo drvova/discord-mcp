@@ -3,14 +3,10 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
-COPY web/package*.json ./web/
 COPY tsconfig.json ./
 COPY src ./src
-COPY web ./web
 
 RUN npm ci
-RUN npm --prefix web ci
-RUN npm --prefix web run build
 RUN npm run build
 
 FROM node:20-alpine
@@ -22,19 +18,21 @@ RUN apk add --no-cache dumb-init
 
 # Copy package files and install only production dependencies
 COPY --from=builder /app/package*.json ./
-RUN npm ci --only=production --ignore-scripts && npm cache clean --force
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
 # Copy built application
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/web/dist ./web/dist
 
 ENV DISCORD_TOKEN=""
 ENV DISCORD_GUILD_ID=""
 ENV NODE_ENV=production
 ENV PORT=3000
+# Definitions the model keeps through the run tool; mount to survive rebuilds.
+ENV DISCORD_MCP_KEPT_DIR=/data/kept
+VOLUME ["/data"]
 
 EXPOSE 3000
 
 # Use dumb-init to handle signals properly for stdio transport
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "dist/src/index.js"]
+CMD ["node", "dist/src/bootstrap.js"]
