@@ -66,7 +66,7 @@ export type CodeHarnessOptions = {
     onLoadError?: (name: string, error: unknown) => void;
 };
 
-type AnyNode = acorn.Node & Record<string, any>;
+type AnyNode = acorn.AnyNode;
 
 type Transformed = {
     script: string;
@@ -87,13 +87,13 @@ export function defaultPersistDir(): string {
     return join(configHome, "discord-mcp", "kept");
 }
 
-function parseProgram(code: string): AnyNode {
+function parseProgram(code: string): acorn.Program {
     return acorn.parse(code, {
         ecmaVersion: "latest",
         sourceType: "script",
         allowAwaitOutsideFunction: true,
         allowReturnOutsideFunction: true,
-    }) as AnyNode;
+    });
 }
 
 function collectPatternNames(pattern: AnyNode, names: string[]): void {
@@ -145,7 +145,7 @@ function isPureInitializer(node: AnyNode | null | undefined): boolean {
             return node.expressions.every(isPureInitializer);
         case "ArrayExpression":
             return node.elements.every(
-                (element: AnyNode | null) =>
+                (element) =>
                     element === null ||
                     isPureInitializer(
                         element.type === "SpreadElement"
@@ -154,7 +154,7 @@ function isPureInitializer(node: AnyNode | null | undefined): boolean {
                     ),
             );
         case "ObjectExpression":
-            return node.properties.every((property: AnyNode) =>
+            return node.properties.every((property) =>
                 property.type === "SpreadElement"
                     ? isPureInitializer(property.argument)
                     : (!property.computed || isPureInitializer(property.key)) &&
@@ -184,25 +184,25 @@ export function transformCode(
     options: { sync?: boolean } = {},
 ): Transformed {
     const program = parseProgram(code);
-    const slice = (node: AnyNode) => code.slice(node.start, node.end);
+    const slice = (node: acorn.Node) => code.slice(node.start, node.end);
     const declared: string[] = [];
     const definitions: KeptDefinition[] = [];
     const prefix: string[] = [];
-    const body: AnyNode[] = program.body;
+    const body = program.body;
     let output = "";
     let cursor = 0;
 
     body.forEach((node, index) => {
         let replacement: string | undefined;
 
-        if (node.type === "FunctionDeclaration") {
+        if (node.type === "FunctionDeclaration" && node.id) {
             // Left in place so hoisting and line numbers are untouched; the
             // prefix publishes the hoisted binding to the namespace.
             const name = node.id.name;
             declared.push(name);
             prefix.push(`globalThis[${JSON.stringify(name)}] = ${name};`);
             definitions.push({ name, kind: "function", source: slice(node) });
-        } else if (node.type === "ClassDeclaration") {
+        } else if (node.type === "ClassDeclaration" && node.id) {
             const name = node.id.name;
             declared.push(name);
             replacement = `${name} = ${slice(node)};`;
@@ -228,7 +228,7 @@ export function transformCode(
                     } else if (node.kind !== "var") {
                         parts.push(`${name} = undefined;`);
                     }
-                } else {
+                } else if (declarator.init) {
                     collectPatternNames(declarator.id, declared);
                     parts.push(
                         `(${slice(declarator.id)} = ${slice(declarator.init)});`,

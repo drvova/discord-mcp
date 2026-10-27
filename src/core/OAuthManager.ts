@@ -281,7 +281,7 @@ export class OAuthManager {
         });
 
         const rawBody = await response.text();
-        let payload: any = {};
+        let payload: Record<string, unknown>;
         try {
             payload = rawBody ? JSON.parse(rawBody) : {};
         } catch {
@@ -309,7 +309,7 @@ export class OAuthManager {
             );
         }
 
-        return payload as DiscordTokenResponse;
+        return payload as unknown as DiscordTokenResponse;
     }
 
     private async fetchUserGuilds(
@@ -323,7 +323,7 @@ export class OAuthManager {
         });
 
         const rawBody = await response.text();
-        let payload: any = [];
+        let payload: unknown;
         try {
             payload = rawBody ? JSON.parse(rawBody) : [];
         } catch {
@@ -331,10 +331,9 @@ export class OAuthManager {
         }
 
         if (!response.ok) {
+            const message = (payload as { message?: unknown } | null)?.message;
             const errorDetail =
-                typeof payload.message === "string"
-                    ? payload.message
-                    : rawBody.slice(0, 200);
+                typeof message === "string" ? message : rawBody.slice(0, 200);
             throw new Error(
                 `Discord guild fetch failed (${response.status}): ${errorDetail || "Unknown error"}`,
             );
@@ -344,10 +343,10 @@ export class OAuthManager {
             throw new Error("Discord guild fetch returned an invalid payload");
         }
 
-        return payload
+        return (payload as Array<Record<string, unknown> | null>)
             .filter(
-                (guild) =>
-                    guild &&
+                (guild): guild is Record<string, unknown> =>
+                    !!guild &&
                     typeof guild.id === "string" &&
                     typeof guild.name === "string",
             )
@@ -400,10 +399,13 @@ export class OAuthManager {
         }
     }
 
-    private normalizeStore(parsed: any): OAuthStore {
-        const states = parsed && typeof parsed === "object" ? parsed.states : {};
-        const sessions =
-            parsed && typeof parsed === "object" ? parsed.sessions : [];
+    private normalizeStore(parsed: unknown): OAuthStore {
+        const record =
+            parsed && typeof parsed === "object"
+                ? (parsed as { states?: unknown; sessions?: unknown })
+                : undefined;
+        const states = record ? record.states : {};
+        const sessions = record ? record.sessions : [];
 
         return {
             states:

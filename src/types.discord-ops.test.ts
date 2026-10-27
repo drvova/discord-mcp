@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { expect, test } from "@rstest/core";
 import {
     DiscordExecBatchSchema,
     DiscordExecInvokeSchema,
@@ -17,9 +16,9 @@ test("DiscordMetaSymbolsSchema accepts fundamental kind filters", () => {
         includeOperationalMatrix: true,
     });
 
-    assert.equal(parsed.packageAlias, "discordjs");
-    assert.equal(parsed.kinds?.length, 6);
-    assert.equal(parsed.includeOperationalMatrix, true);
+    expect(parsed.packageAlias).toBe("discordjs");
+    expect(parsed.kinds?.length).toBe(6);
+    expect(parsed.includeOperationalMatrix).toBe(true);
 });
 
 test("DiscordMetaPreflightSchema strict flags parse as booleans", () => {
@@ -31,8 +30,8 @@ test("DiscordMetaPreflightSchema strict flags parse as booleans", () => {
         strictArgCheck: false,
     });
 
-    assert.equal(parsed.strictContextCheck, true);
-    assert.equal(parsed.strictArgCheck, false);
+    expect(parsed.strictContextCheck).toBe(true);
+    expect(parsed.strictArgCheck).toBe(false);
 });
 
 test("DiscordMetaRefreshSchema accepts refresh controls", () => {
@@ -41,8 +40,8 @@ test("DiscordMetaRefreshSchema accepts refresh controls", () => {
         includeDiff: false,
     });
 
-    assert.equal(parsed.force, true);
-    assert.equal(parsed.includeDiff, false);
+    expect(parsed.force).toBe(true);
+    expect(parsed.includeDiff).toBe(false);
 });
 
 test("DiscordExecInvokeSchema validates required fields", () => {
@@ -53,8 +52,8 @@ test("DiscordExecInvokeSchema validates required fields", () => {
         dryRun: true,
     });
 
-    assert.equal(parsed.packageAlias, "discordjs");
-    assert.equal(parsed.symbol, "TextChannel#send");
+    expect(parsed.packageAlias).toBe("discordjs");
+    expect(parsed.symbol).toBe("TextChannel#send");
 });
 
 test("DiscordExecBatchSchema enforces item array constraints", () => {
@@ -72,17 +71,15 @@ test("DiscordExecBatchSchema enforces item array constraints", () => {
         ],
     });
 
-    assert.equal(parsed.items.length, 1);
-    assert.equal(parsed.maxParallelism, 4);
+    expect(parsed.items.length).toBe(1);
+    expect(parsed.maxParallelism).toBe(4);
 });
 
 test("DiscordExecInvokeSchema rejects unknown kind values", () => {
-    assert.throws(
-        () =>
+    expect(() =>
             DiscordExecInvokeSchema.parse({
                 packageAlias: "discordjs",
                 symbol: "TextChannel#send",
                 kind: "method",
-            }),
-    );
+            })).toThrow();
 });

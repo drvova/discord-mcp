@@ -6,7 +6,6 @@ import {
     StdioClientTransport,
 } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 
 // MCP-as-code: other MCP servers' tools become plain async functions in the
 // run tool's namespace (`mcp.<server>.<tool>(args)`) instead of being
@@ -253,7 +252,9 @@ export class McpUpstreams {
         } catch (error) {
             entry.status.error = error instanceof Error ? error.message : String(error);
             this.options.onError?.(key, error);
-            throw new Error(`Could not connect MCP server '${key}': ${entry.status.error}`);
+            throw new Error(`Could not connect MCP server '${key}': ${entry.status.error}`, {
+                cause: error,
+            });
         }
         return { ...entry.status, tools: [...entry.status.tools] };
     }
@@ -288,7 +289,9 @@ export class McpUpstreams {
         config: UpstreamConfig,
         status: UpstreamStatus,
     ): Promise<Client> {
-        const attempt = async (transport: Transport): Promise<Client> => {
+        const attempt = async (
+            transport: Parameters<Client["connect"]>[0],
+        ): Promise<Client> => {
             const client = new Client({
                 name: this.options.clientName || "discord-mcp-run",
                 version: "0.0.1",
