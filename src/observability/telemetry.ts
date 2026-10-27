@@ -115,7 +115,7 @@ export async function initializeTelemetry(): Promise<void> {
             "deployment.environment": deploymentEnvironment,
         }),
         traceExporter,
-        metricReader,
+        metricReaders: [metricReader],
         instrumentations: [
             getNodeAutoInstrumentations({
                 // Outgoing request spans carry timing; keep tokens out of

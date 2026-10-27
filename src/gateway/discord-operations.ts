@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { AnyZodObject } from "zod";
+import { z } from "zod";
 import type { DiscordService } from "../discord-service.js";
 import { Logger } from "../core/Logger.js";
 import {
@@ -63,7 +63,7 @@ export type PreflightEvaluation = {
     preflightToken: string;
 };
 
-const OPERATION_SCHEMA_BY_NAME: Record<DiscordOperation, AnyZodObject> = {
+const OPERATION_SCHEMA_BY_NAME: Record<DiscordOperation, z.ZodObject> = {
     [DISCORD_META_PACKAGES_OPERATION]: schemas.DiscordMetaPackagesSchema,
     [DISCORD_META_SYMBOLS_OPERATION]: schemas.DiscordMetaSymbolsSchema,
     [DISCORD_META_PREFLIGHT_OPERATION]: schemas.DiscordMetaPreflightSchema,
@@ -72,7 +72,7 @@ const OPERATION_SCHEMA_BY_NAME: Record<DiscordOperation, AnyZodObject> = {
     [DISCORD_EXEC_BATCH_OPERATION]: schemas.DiscordExecBatchSchema,
 };
 
-function getSchemaForOperation(operation: DiscordOperation): AnyZodObject {
+function getSchemaForOperation(operation: DiscordOperation): z.ZodObject {
     const schema = OPERATION_SCHEMA_BY_NAME[operation];
     if (!schema) {
         throw new Error(`No schema is registered for operation '${operation}'.`);
@@ -133,9 +133,13 @@ export function prepareDiscordOperation(input: {
     params?: Record<string, unknown>;
 }): PreparedDiscordOperation {
     const operation = resolveOperation(input.operation);
-    const params = getSchemaForOperation(operation).parse(
-        input.params ?? {},
-    ) as Record<string, unknown>;
+    const parsed = getSchemaForOperation(operation).safeParse(input.params ?? {});
+    if (!parsed.success) {
+        throw new Error(
+            `Invalid params for ${operation}:\n${z.prettifyError(parsed.error)}`,
+        );
+    }
+    const params = parsed.data as Record<string, unknown>;
 
     return {
         mode: input.mode,

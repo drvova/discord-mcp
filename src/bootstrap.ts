@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import "dotenv/config";
+import "./load-env.js";
 
 // `discord-mcp <command>` runs the agent/identity/known-hosts commands (see
 // cli/cli.ts); `discord-mcp` alone starts the MCP server. The command list
