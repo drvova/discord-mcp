@@ -1,0 +1,12 @@
+{
+  "name": "discord-mcp-banner",
+  "private": true,
+  "type": "module",
+  "description": "Source of the animated README banner, authored with Clayzo. Kept apart from the server so its packages never become server dependencies.",
+  "dependencies": {
+    "@clayzo/animation": "0.3.19"
+  },
+  "devDependencies": {
+    "clayzo": "0.3.19"
+  }
+}

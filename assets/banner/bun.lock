@@ -1,0 +1,36 @@
+{
+  "lockfileVersion": 2,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "discord-mcp-banner",
+      "dependencies": {
+        "@clayzo/animation": "0.3.19",
+      },
+      "devDependencies": {
+        "clayzo": "0.3.19",
+      },
+    },
+  },
+  "packages": {
+    "@clayzo/animation": ["@clayzo/animation@0.3.19", "", { "dependencies": { "zod": "^4.4.3" } }, "sha512-Nr56ozdMwlyFssPnGVV6vlBLzQWJAbNca3SOfDHcETHaWK5carYfH0zbeHaRDXaLiyOie+iblID0nHGauRKsCA=="],
+
+    "@clayzo/ffmpeg-darwin-arm64": ["@clayzo/ffmpeg-darwin-arm64@1.2.1", "", { "os": "darwin", "cpu": "arm64" }, "sha512-blqWYmYtO+gjf+N57awypFDK7FxtvDnpc8d5A59u8DV0CQ3nRUzGcsuEfjWA8aZWhdaFNDaSaeRDI31Qr5ObEQ=="],
+
+    "@clayzo/ffmpeg-darwin-x64": ["@clayzo/ffmpeg-darwin-x64@1.2.1", "", { "os": "darwin", "cpu": "x64" }, "sha512-UMFJgCzUtjReVSEiSWROF3BTMsVvKJob+1UePji6H99VmOFCrwCTPnTiv31aNDJt3NYmcGjymwMid2PXf1MWvA=="],
+
+    "@clayzo/ffmpeg-linux-arm64": ["@clayzo/ffmpeg-linux-arm64@1.2.1", "", { "os": "linux", "cpu": "arm64" }, "sha512-p2pHrWJbzP19dc6mk5av4MiqlEk74FCyvQKa2gIUvvtJkUu3hshusgpYwLtBPWc2An9uIqACJ82iHmWr/SEoMw=="],
+
+    "@clayzo/ffmpeg-linux-x64": ["@clayzo/ffmpeg-linux-x64@1.2.1", "", { "os": "linux", "cpu": "x64" }, "sha512-3nfcAvZrwM2Ehykx4eUo7nacpefCPXQtehMRpyM9OoSFfmUODKPfDdQ90/KMFzgwGcvgMGALfS62u3Pq1qCIYA=="],
+
+    "@clayzo/ffmpeg-win32-x64": ["@clayzo/ffmpeg-win32-x64@1.2.1", "", { "os": "win32", "cpu": "x64" }, "sha512-EfGN2nL4sz2yJOYEnw0Iv+Uw8wwSK8HpoDmvoH3azwuifgZDWRirICEKxPkbb9zV04HRxQwLOvF4x8/z/vAVtQ=="],
+
+    "@webgpu/types": ["@webgpu/types@0.1.21", "", {}, "sha512-pUrWq3V5PiSGFLeLxoGqReTZmiiXwY3jRkIG5sLLKjyqNxrwm/04b4nw7LSmGWJcKk59XOM/YRTUwOzo4MMlow=="],
+
+    "canvaskit-wasm": ["canvaskit-wasm@0.42.0", "", { "dependencies": { "@webgpu/types": "0.1.21" } }, "sha512-N3ikotmzYwDVAcpQKDMptBT2P5pIEWS9ywdmrQA2awwaMF9cxKEFuxZZHv9ay1Em9kDjxDsPtwUzDm1uNj136g=="],
+
+    "clayzo": ["clayzo@0.3.19", "", { "dependencies": { "canvaskit-wasm": "0.42.0", "zod": "^4.4.3" }, "optionalDependencies": { "@clayzo/ffmpeg-darwin-arm64": "1.2.1", "@clayzo/ffmpeg-darwin-x64": "1.2.1", "@clayzo/ffmpeg-linux-arm64": "1.2.1", "@clayzo/ffmpeg-linux-x64": "1.2.1", "@clayzo/ffmpeg-win32-x64": "1.2.1" }, "bin": { "clayzo": "dist/bin.js" } }, "sha512-ShTocWRpY1aXNC4c1P4boLF2PuiX9dtgcm3oZuTEN6gNXknZvaInHRW/pfwcStvj/l0Zg8vnVtrtymNrpAme9Q=="],
+
+    "zod": ["zod@4.6.7", "", {}, "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg=="],
+  }
+}

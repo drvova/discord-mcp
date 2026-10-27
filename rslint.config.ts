@@ -1,7 +1,8 @@
 import { defineConfig, globalIgnores, js, nodePlugin, rstestPlugin, ts } from "@rslint/core";
 
 export default defineConfig([
-    globalIgnores(["dist/**", "node_modules/**"]),
+    // assets/banner is its own project (the Clayzo banner) with its own dependencies.
+    globalIgnores(["dist/**", "node_modules/**", "assets/**"]),
     js.configs.recommended,
     ...ts.configs.recommended,
     nodePlugin.configs.recommendedModule,
