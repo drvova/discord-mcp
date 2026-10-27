@@ -198,5 +198,7 @@ test("network() reports policy and latency by name, never by token", async () =>
     expect(info.latency).toEqual({
         discord_rest: { "default-bot": { count: 1, errors: 0, lastMs: 12, avgMs: 12, p50Ms: 12, p95Ms: 12 } },
     });
-    expect(info.notProxied).toContain("discord gateway websocket (wss://, @discordjs/ws has no proxy option)");
+    expect(info.notProxied).toContain(
+        "discord gateway websocket (wss://, @discordjs/ws has no proxy option; use the agent)",
+    );
 });

@@ -17,6 +17,9 @@ import { listLoadedDiscordRuntimePackages } from "./gateway/discordjs-symbol-cat
 import { createHttpApp } from "./http-app.js";
 import { IdentityWorkerPool } from "./gateway/identity-worker-pool.js";
 import { LocalEncryptedIdentityStore } from "./identity/local-encrypted-identity-store.js";
+import type { IdentitySource } from "./identity/identity-source.js";
+import { AgentClient, AgentIdentityStore } from "./agent/agent-client.js";
+import { placeholderToken } from "./agent/agent-server.js";
 import {
     recordRequestMetric,
     withSpan,
@@ -52,7 +55,31 @@ const server = new Server(
 let discordService: DiscordService | undefined;
 let discordController: DiscordController;
 let oauthManager: OAuthManager | null = null;
-const identityStore = new LocalEncryptedIdentityStore();
+// With DISCORD_MCP_AGENT_SOCK set (like SSH_AUTH_SOCK), tokens stay in the
+// discord-mcp agent and this process only holds `agent:<id>` placeholders.
+// Without it ("direct mode"), tokens come from the environment and live here.
+const agentClient = process.env.DISCORD_MCP_AGENT_SOCK
+    ? new AgentClient(process.env.DISCORD_MCP_AGENT_SOCK)
+    : undefined;
+const directIdentityStore = agentClient ? undefined : new LocalEncryptedIdentityStore();
+const identityStore: IdentitySource = agentClient
+    ? new AgentIdentityStore(agentClient)
+    : (directIdentityStore as LocalEncryptedIdentityStore);
+
+// Secrets read from the environment at startup are removed from process.env
+// once consumed, so code in the run tool cannot read them there.
+const SECRET_ENV_VARS = [
+    "DISCORD_TOKEN",
+    "DISCORD_USER_TOKEN",
+    "DISCORD_MCP_MASTER_KEY",
+    "DISCORD_CLIENT_SECRET",
+];
+
+function scrubSecretEnv(): void {
+    for (const name of SECRET_ENV_VARS) {
+        delete process.env[name];
+    }
+}
 const identityWorkerPool = new IdentityWorkerPool();
 const logger = Logger.getInstance().child("server");
 
@@ -107,6 +134,13 @@ function parseBooleanQuery(value: string | null): boolean | undefined {
 }
 
 async function initializeDiscord() {
+    if (agentClient) {
+        await initializeDiscordViaAgent(agentClient);
+        return;
+    }
+    logger.warn(
+        "Direct mode: Discord tokens are held in this process, so code in the run tool can read them (e.g. client.token). For ssh-agent-style isolation, run `discord-mcp agent` and set DISCORD_MCP_AGENT_SOCK.",
+    );
     discordController = new DiscordController({
         dispatcher: network.dispatcher,
         latency,
@@ -115,6 +149,45 @@ async function initializeDiscord() {
         await discordController.initialize();
     } catch (error) {
         // The run tool can still log in later via connect()/bind().
+        logger.warn(
+            `Discord login at startup failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+    }
+    discordService = discordController.getDiscordService();
+    bindDiscordOperationsService(discordService);
+}
+
+async function initializeDiscordViaAgent(agent: AgentClient) {
+    if (process.env.DISCORD_TOKEN || process.env.DISCORD_USER_TOKEN) {
+        logger.warn(
+            "DISCORD_TOKEN / DISCORD_USER_TOKEN are ignored with the agent; remove them from the environment and use `discord-mcp identity add`.",
+        );
+    }
+    try {
+        await (identityStore as AgentIdentityStore).refresh();
+    } catch (error) {
+        logger.error(error instanceof Error ? error.message : String(error));
+        process.exit(1);
+    }
+    const ids = identityStore.listIdentityIds();
+    const startupId =
+        ids.find((id) => id === "default-bot") ||
+        ids.find((id) => identityStore.getIdentity(id)?.mode === "bot") ||
+        ids[0];
+    const startup = startupId ? identityStore.getIdentity(startupId) : undefined;
+    logger.info(
+        `Using the discord-mcp agent at ${agent.socketPath}; identities: ${ids.join(", ") || "none"}. Tokens never enter this process.`,
+    );
+    discordController = new DiscordController(
+        { dispatcher: agent.dispatcher, restApi: agent.restApi, latency },
+        { tokenType: startup?.mode || "bot", token: startup ? placeholderToken(startup.id) : "" },
+    );
+    try {
+        if (!startup) {
+            throw new Error("The agent has no identities; add one with `discord-mcp identity add ID`.");
+        }
+        await discordController.initialize();
+    } catch (error) {
         logger.warn(
             `Discord login at startup failed: ${error instanceof Error ? error.message : String(error)}`,
         );
@@ -256,7 +329,7 @@ async function main() {
             );
         }
         await initializeDiscord();
-        identityStore.ensureDefaultsFromEnv();
+        directIdentityStore?.ensureDefaultsFromEnv();
         if (discordService) {
             await adoptStartupIdentity(discordHarness, discordService, identityStore);
         }
@@ -277,6 +350,7 @@ async function main() {
             ...config.oauth,
             clientId: oauthClientId,
         });
+        scrubSecretEnv();
 
         if (useHttp) {
             const missingOAuthConfig =

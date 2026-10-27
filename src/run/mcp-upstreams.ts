@@ -9,9 +9,10 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import type { LatencyStats, LatencyTracker } from "../net/latency.js";
 import {
     assertEncryptedUpstream,
-    createFetch,
+    createUpstreamFetch,
     redactUrl,
     type NetworkConfig,
+    type TlsOverrides,
 } from "../net/network.js";
 
 // MCP-as-code: other MCP servers' tools become plain async functions in the
@@ -209,6 +210,7 @@ export class McpUpstreams {
             clientName?: string;
             network?: NetworkConfig;
             latency?: LatencyTracker;
+            tls?: TlsOverrides;
         } = {},
     ) {}
 
@@ -337,7 +339,7 @@ export class McpUpstreams {
         assertEncryptedUpstream(url, network);
         status.url = redactUrl(url);
         const requestInit = { headers: expandRecord(config.headers) };
-        const fetch = createFetch(network);
+        const fetch = createUpstreamFetch(network, url, this.options.tls);
 
         if (status.transport === "sse") {
             return attempt(new SSEClientTransport(url, { requestInit, fetch }));

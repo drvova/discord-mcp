@@ -137,6 +137,8 @@ const DYNAMIC_WRITE_ALLOWLIST_PATTERNS: RegExp[] = [
 export type DiscordNetworkOptions = {
     dispatcher?: Dispatcher;
     latency?: LatencyTracker;
+    // Discord REST base URL; points at the agent in agent mode.
+    restApi?: string;
 };
 
 export class DiscordService {
@@ -705,12 +707,13 @@ export class DiscordService {
     private createClient(config: z.infer<typeof AuthConfigSchema>): Client {
         const intents = this.getIntentsForConfig(config.intents);
 
-        const { dispatcher, latency } = this.network;
+        const { dispatcher, latency, restApi } = this.network;
         const baseMakeRequest = DefaultRestOptions.makeRequest;
         return new Client({
             intents,
             rest: {
                 ...(dispatcher ? { agent: dispatcher } : {}),
+                ...(restApi ? { api: restApi } : {}),
                 ...(latency
                     ? {
                           makeRequest: (url, init) =>
