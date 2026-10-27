@@ -10,6 +10,7 @@ import { PrometheusExporter } from "@opentelemetry/exporter-prometheus";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import { NodeSDK } from "@opentelemetry/sdk-node";
+import { redactDiscordTokenPath, redactUrl } from "../net/redact.js";
 import { getModuleLogger } from "./logger.js";
 
 const logger = getModuleLogger("telemetry");
@@ -115,7 +116,30 @@ export async function initializeTelemetry(): Promise<void> {
         }),
         traceExporter,
         metricReader,
-        instrumentations: [getNodeAutoInstrumentations()],
+        instrumentations: [
+            getNodeAutoInstrumentations({
+                // Outgoing request spans carry timing; keep tokens out of
+                // their URLs (Discord webhook/interaction paths, query strings).
+                "@opentelemetry/instrumentation-undici": {
+                    requestHook: (span, request) => {
+                        span.setAttribute("url.full", redactUrl(`${request.origin}${request.path}`));
+                        span.setAttribute("url.path", redactDiscordTokenPath(request.path.split("?")[0]));
+                        span.setAttribute("url.query", "");
+                    },
+                },
+                "@opentelemetry/instrumentation-http": {
+                    requestHook: (span, request) => {
+                        if ("path" in request && typeof request.path === "string") {
+                            const host = request.getHeader("host") || request.host;
+                            span.setAttribute("url.full", redactUrl(`${request.protocol}//${host}${request.path}`));
+                            span.setAttribute("http.url", redactUrl(`${request.protocol}//${host}${request.path}`));
+                            span.setAttribute("url.path", redactDiscordTokenPath(request.path.split("?")[0]));
+                            span.setAttribute("http.target", redactDiscordTokenPath(request.path.split("?")[0]));
+                        }
+                    },
+                },
+            }),
+        ],
     });
 
     await sdk.start();
@@ -161,6 +185,7 @@ type RuntimeInstruments = {
         ReturnType<typeof metrics.getMeter>["createHistogram"]
     >;
     auditEventCounter: ReturnType<ReturnType<typeof metrics.getMeter>["createCounter"]>;
+    networkLatency: ReturnType<ReturnType<typeof metrics.getMeter>["createHistogram"]>;
 };
 
 let instruments: RuntimeInstruments | null = null;
@@ -196,6 +221,11 @@ function getRuntimeInstruments(): RuntimeInstruments {
         auditEventCounter: meter.createCounter("discord_mcp_audit_events_total", {
             description: "Count of audit events emitted by the gateway.",
         }),
+        networkLatency: meter.createHistogram("discord_mcp_network_latency_ms", {
+            unit: "ms",
+            description:
+                "Round-trip latency of outbound requests (Discord REST per identity, upstream MCP per server).",
+        }),
     };
     return instruments;
 }
@@ -217,6 +247,13 @@ export function recordDiscordOperationMetric(
         getRuntimeInstruments();
     discordOperationCounter.add(1, attributes);
     discordOperationDuration.record(durationMs, attributes);
+}
+
+export function recordNetworkLatency(
+    attributes: Attributes,
+    durationMs: number,
+): void {
+    getRuntimeInstruments().networkLatency.record(durationMs, attributes);
 }
 
 export function recordAuditEventMetric(attributes: Attributes): void {

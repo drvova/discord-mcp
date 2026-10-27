@@ -24,6 +24,8 @@ import type {
 } from "../identity/local-encrypted-identity-store.js";
 import { CodeHarness, type DescribeHooks, type RunResult } from "./harness.js";
 import { McpUpstreams, type UpstreamConfig } from "./mcp-upstreams.js";
+import { LatencyTracker } from "../net/latency.js";
+import { createFetch, describeNetwork, type NetworkConfig } from "../net/network.js";
 
 // Seeds the run tool's namespace with the project's Discord API: identities
 // (the working objects), the bound discord.js client, the runtime package
@@ -36,6 +38,8 @@ export type DiscordNamespaceDeps = {
     identityStore: LocalEncryptedIdentityStore;
     persistDir?: string;
     upstreams?: McpUpstreams;
+    network?: NetworkConfig;
+    latency?: LatencyTracker;
     onLoadError?: (name: string, error: unknown) => void;
 };
 
@@ -90,12 +94,20 @@ Other MCP servers, as functions (code mode)
                                 throws on tool errors. Compose calls in code and
                                 print only what you need.
   describe(mcp.<server>)     -> every tool's signature (from its input schema) and doc
-  mcpServers()               -> [{ name, transport, connected, tools, error? }]
+  mcpServers()               -> [{ name, transport, connected, tools, url?, latency?, error? }]
   mcpConnect(name, config)   -> connect one now: { url, headers? } (streamable HTTP,
                                 falls back to SSE) or { command, args?, env? } (stdio)
   mcpDisconnect(name)
   Servers in DISCORD_MCP_UPSTREAMS connect at startup. Kept helpers that wrap
   mcp.* tools keep working after a restart once their server reconnects.
+
+Network
+  network()         -> proxy (redacted), what is and isn't proxied, TLS policy,
+                       and round-trip latency per identity (Discord REST) and per
+                       server (upstream MCP), plus the gateway ping. Labelled by
+                       identity/server name only; tokens never appear.
+  Upstream MCP servers must use https:// (http only to localhost). fetch() goes
+  through DISCORD_MCP_PROXY when it is set.
 
 Introspection and I/O
   describe(x)       -> live capabilities + members with signatures and docs
@@ -218,11 +230,22 @@ export function createDiscordHarness(deps: DiscordNamespaceDeps): DiscordHarness
     };
 
     const upstreams = deps.upstreams || new McpUpstreams();
+    const network = deps.network || { tlsVerification: true };
+    const latency = deps.latency || new LatencyTracker();
+    const restLatency = () =>
+        boundIdentity ? latency.stats("discord_rest", boundIdentity.id) : undefined;
     const harness = new CodeHarness({
         persistDir: deps.persistDir,
         manual: () => DISCORD_NAMESPACE_MANUAL,
         describe: {
             ...describeHooks,
+            capabilities: (value) => {
+                const base = describeHooks.capabilities?.(value);
+                if (base && value instanceof discordJs.Client) {
+                    return { ...base, restLatency: restLatency() };
+                }
+                return base;
+            },
             functionInfo: (fn) => upstreams.functionInfo(fn),
         },
         onLoadError: deps.onLoadError,
@@ -259,6 +282,7 @@ export function createDiscordHarness(deps: DiscordNamespaceDeps): DiscordHarness
             });
         }
         boundIdentity = { id: record.id, mode: record.mode };
+        service.setLatencyLabel(record.id);
         publishBinding();
         return service.getClient();
     };
@@ -287,6 +311,20 @@ export function createDiscordHarness(deps: DiscordNamespaceDeps): DiscordHarness
         };
 
     harness.defineBuiltins({
+        fetch: createFetch(network),
+        network: () => {
+            const client = getService()?.getClient();
+            return {
+                ...describeNetwork(network),
+                latency: latency.all(),
+                gateway: boundIdentity
+                    ? {
+                          identity: boundIdentity.id,
+                          pingMs: client?.isReady() ? client.ws.ping : null,
+                      }
+                    : null,
+            };
+        },
         discord: discordJs,
         identities: () =>
             identityStore.listIdentityIds().map((id) => ({
