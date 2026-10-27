@@ -10,12 +10,6 @@ import { z } from "zod";
 import { Logger } from "./core/Logger.js";
 import type { OAuthManager } from "./core/OAuthManager.js";
 import { AppErrorCode, toPublicErrorPayload } from "./core/errors.js";
-import type { AuditEvent, AuditRiskTier } from "./gateway/audit-log.js";
-import type {
-    DiscordOperation,
-    DomainMethod,
-} from "./gateway/domain-registry.js";
-import type { IdentityMode } from "./identity/local-encrypted-identity-store.js";
 import { recordRequestMetric, withSpan } from "./observability/telemetry.js";
 
 const JsonRpcHttpMessageSchema = z.object({
@@ -83,63 +77,28 @@ const oauthCallbackQueryValidator = validator("query", (value, c) => {
     return parsed.data;
 });
 
-function parseJsonMaybe(payload: string): unknown {
-    try {
-        return JSON.parse(payload) as unknown;
-    } catch {
-        return payload;
-    }
-}
-
-export type ParsedDiscordManageCallLike = {
-    mode: IdentityMode;
-    identityId: string;
-    method: DomainMethod;
-    operation: DiscordOperation;
-    params: Record<string, unknown>;
-    riskTier: AuditRiskTier;
-};
-
-type IdentityWorkerPoolLike = {
-    run<T>(
-        identityId: string,
-        task: () => Promise<T>,
-    ): Promise<T>;
+type ToolCallResult = {
+    content: Array<{ type: "text"; text: string }>;
+    isError?: boolean;
 };
 
 type HttpAppDependencies = {
     port: number;
     server: Server;
-    identityWorkerPool: IdentityWorkerPoolLike;
-    parseDiscordManageCall: (
-        name: unknown,
-        rawArgs: unknown,
-    ) => ParsedDiscordManageCallLike;
-    ensureIdentityForCall: (
-        mode: IdentityMode,
-        identityId: string,
-    ) => Promise<void>;
-    executeDiscordManageOperation: (
-        parsedCall: ParsedDiscordManageCallLike,
-    ) => Promise<string>;
-    writeAuditEvent: (event: AuditEvent) => void;
+    callTool: (name: unknown, rawArgs: unknown) => Promise<ToolCallResult>;
     getOAuthManager: () => OAuthManager;
     parseBooleanQuery: (value: string | null) => boolean | undefined;
-    getAllTools: () => unknown[];
+    listTools: () => unknown[];
 };
 
 export function createHttpApp(deps: HttpAppDependencies) {
     const {
         port,
         server,
-        identityWorkerPool,
-        parseDiscordManageCall,
-        ensureIdentityForCall,
-        executeDiscordManageOperation,
-        writeAuditEvent,
+        callTool,
         getOAuthManager,
         parseBooleanQuery,
-        getAllTools,
+        listTools,
     } = deps;
 
     const activeTransports = new Map<string, SSEServerTransport>();
@@ -230,7 +189,7 @@ export function createHttpApp(deps: HttpAppDependencies) {
                 {
                     jsonrpc: "2.0",
                     id: message.id,
-                    result: { tools: getAllTools() },
+                    result: { tools: listTools() },
                 },
                 200,
             );
@@ -238,70 +197,15 @@ export function createHttpApp(deps: HttpAppDependencies) {
 
         if (message.method === "tools/call") {
             try {
-                const parsedCall = parseDiscordManageCall(
+                const result = await callTool(
                     message.params?.name,
                     message.params?.arguments,
                 );
-                const startedAt = Date.now();
-                let result: string;
-
-                try {
-                    result = await identityWorkerPool.run(
-                        parsedCall.identityId,
-                        async () => {
-                            await ensureIdentityForCall(
-                                parsedCall.mode,
-                                parsedCall.identityId,
-                            );
-                            return executeDiscordManageOperation(parsedCall);
-                        },
-                    );
-
-                    writeAuditEvent({
-                        identityId: parsedCall.identityId,
-                        mode: parsedCall.mode,
-                        method: parsedCall.method,
-                        operation: parsedCall.operation,
-                        riskTier: parsedCall.riskTier,
-                        status: "success",
-                        durationMs: Date.now() - startedAt,
-                    });
-                } catch (error) {
-                    writeAuditEvent({
-                        identityId: parsedCall.identityId,
-                        mode: parsedCall.mode,
-                        method: parsedCall.method,
-                        operation: parsedCall.operation,
-                        riskTier: parsedCall.riskTier,
-                        status: "error",
-                        durationMs: Date.now() - startedAt,
-                        error:
-                            error instanceof Error
-                                ? error.message
-                                : String(error),
-                    });
-                    throw error;
-                }
-
                 return c.json(
                     {
                         jsonrpc: "2.0",
                         id: message.id,
-                        result: {
-                            content: [
-                                {
-                                    type: "text",
-                                    text: result,
-                                },
-                            ],
-                            structuredContent: {
-                                operation: parsedCall.operation,
-                                method: parsedCall.method,
-                                mode: parsedCall.mode,
-                                identityId: parsedCall.identityId,
-                                result: parseJsonMaybe(result),
-                            },
-                        },
+                        result,
                     },
                     200,
                 );

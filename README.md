@@ -1,45 +1,58 @@
 # Discord MCP Server
 
-> **⚠️ Security Notice**: This project handles Discord credentials and privileged Discord operations. Treat all tokens and secrets as sensitive.
+> **⚠️ Security Notice**: The single tool this server exposes **runs arbitrary JavaScript with the server's full authority** — every Discord token it holds, the network, the filesystem and the process. That is the design, not a mode: there is no switch that turns it off. **Run the server sandboxed** (a container, VM or jail with only the access you intend to grant), and treat its tokens as exposed to whatever drives the tool.
 
-Discord MCP Server exposes Discord runtime packages through one MCP tool with a unified metadata/execution protocol.
+Discord MCP Server exposes Discord to a model through **one tool that runs code**. The model discovers the live discord.js API, writes its own helpers, and reuses and refines them across calls and restarts — instead of choosing from a fixed menu of verbs.
 
-## Current Architecture
+## Why one code tool
 
-This repository now uses the **Discord runtime vNext protocol**:
+A fixed catalog of typed tools is the wrong interface: every bot, permission set and library version supports a different subset of Discord, and different models have different strengths with different tools. So the server does not hand-pick verbs. It exposes `run`, gives the code a live API, and lets each deployment's model accrete the tooling it needs.
 
-- **MCP tool**: `discord_manage`
+## The `run` tool
+
+`run` is the only advertised tool. Arguments:
+
+- `code` (string, required) — JavaScript to run. An empty string returns the manual.
+- `identity` (string, optional) — identity id to bind as `client` before the code runs (for example `default-bot`).
+- `vars` (object of strings, optional) — named strings available as `vars.<name>`; use them for long text or payloads instead of escaping them in `code`.
+
+The code runs in **one long-lived namespace**. Top-level `await` works; the result is whatever the code printed plus the value of its last expression.
+
+```js
+// call 1 — build a helper
+async function channelByName(guildId, name) {
+  const guild = await client.guilds.fetch(guildId);
+  return (await guild.channels.fetch()).find((c) => c.name === name);
+}
+
+// call 2 — use it (vars.body was passed in the tool's `vars` argument)
+const ch = await channelByName("123456789012345678", "general");
+await ch.send(vars.body);
+```
+
+### What the namespace provides
+
+| Name | What it is |
+| --- | --- |
+| `client` | The bound discord.js `Client`; drive its full API directly |
+| `identities()`, `connect(id, { mode, token })`, `bind(id)` | List, create and bind identities (the working objects) |
+| `identity` | `{ id, mode }` of the bound identity |
+| `packages()`, `symbols(query)`, `pkg(alias)`, `discord` | What the project offers: loaded Discord runtime packages, their symbols, their exports, the discord.js module |
+| `describe(x)` | Live capabilities (for a client: readiness, user, intents, guilds) plus every member's signature and one-line doc, taken from discord.js's own JSDoc |
+| `ops.packages / symbols / preflight / refresh / invoke / batch(params)` | The earlier structured operations, now plain functions |
+| `vars`, `print`, `console`, `fetch`, `require`, `sleep`, `man()` | I/O and utilities |
+| `kept()`, `kept(name)`, `forget(name)` | Saved definitions |
+
+### Definitions persist across restarts
+
+After each successful call, each top-level **definition** — a `function` or `class` declaration, or a `const` bound to a literal, function or class — is saved as its own file and loaded back when the server starts. Each saved unit loads in isolation, so a broken one is reported by `kept()` and never stops the server. Statements that do work (calls, `let`, `const x = await …`) are never saved or replayed. `forget(name)` deletes a definition.
+
+Saved definitions live in `DISCORD_MCP_KEPT_DIR`, defaulting to `$XDG_CONFIG_HOME/discord-mcp/kept` (`~/.config/discord-mcp/kept`). Mount it as a volume to keep the model's tooling across container restarts.
+
+### Runtime
+
 - **HTTP runtime**: Hono (`@hono/node-server`)
-- **Read operations** (`automation.read`):
-  - `discord.meta.packages`
-  - `discord.meta.symbols`
-  - `discord.meta.preflight`
-  - `discord.meta.refresh`
-- **Write operations** (`automation.write`):
-  - `discord.exec.invoke`
-  - `discord.exec.batch`
-
-### Tool Contract
-
-`discord_manage` uses the contract below:
-
-- `mode`: `bot` or `user`
-- `identityId`: identity record (for example `default-bot`)
-- `method`: optional override (`automation.read` or `automation.write`)
-- `operation`: one of
-  - `discord.meta.packages`
-  - `discord.meta.symbols`
-  - `discord.meta.preflight`
-  - `discord.meta.refresh`
-  - `discord.exec.invoke`
-  - `discord.exec.batch`
-- `params` or `args`
-
-Runtime symbol coverage:
-- `class`, `function`, `enum`, `interface`, `type`, and `variable` are discovered.
-- `interface`, `type`, `namespace`, and `variable` can be sourced from package declaration files (`.d.ts`) when missing at runtime.
-- `discord.meta.symbols` can include an operational matrix per symbol for preflight/execution readiness.
-- Catalog responses include `catalogFingerprint`, `catalogBuiltAt`, and `isFresh` metadata for agent-side cache control.
+- The server starts without a Discord token; the model can log in later with `connect(...)` / `bind(...)`.
 
 ## Branch Model
 
@@ -91,7 +104,10 @@ DISCORD_GUILD_ID=your_guild_id_here
 # DISCORD_MCP_MASTER_KEY=your_32_byte_key_material
 # DISCORD_MCP_IDENTITY_STORE_PATH=./.discord-mcp-identities.enc
 
-# Optional risk policy override
+# Optional: where the run tool saves the model's definitions
+# DISCORD_MCP_KEPT_DIR=~/.config/discord-mcp/kept
+
+# Optional risk policy override (ops.* functions only)
 # DISCORD_MCP_BLOCK_HIGH_RISK=true
 
 # Optional audit log file
@@ -164,165 +180,45 @@ const rpcResponse = await client.index.$post({
 const rpc = await rpcResponse.json();
 ```
 
-The MCP JSON-RPC contract on `POST /` is unchanged (`initialize`, `tools/list`, `tools/call`).
+The MCP JSON-RPC contract on `POST /` (`initialize`, `tools/list`, `tools/call`) serves the same single `run` tool.
 
 ## Usage Examples
 
-### 1) List Runtime Packages
+Each example is the `code` argument of one `run` call.
 
-```json
-{
-  "mode": "bot",
-  "identityId": "default-bot",
-  "method": "automation.read",
-  "operation": "discord.meta.packages",
-  "params": {
-    "packages": ["discordjs", "discordjs_voice"]
-  }
-}
+```js
+// Discover what is available
+describe(client)
 ```
 
-### 2) Discover Symbols + Operational Matrix
-
-```json
-{
-  "mode": "bot",
-  "identityId": "default-bot",
-  "method": "automation.read",
-  "operation": "discord.meta.symbols",
-  "params": {
-    "packageAlias": "discordjs",
-    "kinds": ["class", "function", "enum", "interface", "type", "variable"],
-    "query": "TextChannel#send",
-    "includeAliases": true,
-    "includeKindCounts": true,
-    "includeOperationalMatrix": true
-  }
-}
+```js
+// Package and symbol catalog
+(await symbols("TextChannel#send")).items.map((s) => s.name)
 ```
 
-### 3) Preflight Before Execution
-
-```json
-{
-  "mode": "bot",
-  "identityId": "default-bot",
-  "method": "automation.read",
-  "operation": "discord.meta.preflight",
-  "params": {
-    "packageAlias": "discordjs",
-    "symbol": "TextChannel#send",
-    "kind": "function",
-    "target": "channel",
-    "context": {
-      "channelId": "123456789012345678"
-    },
-    "policyMode": "strict",
-    "strictContextCheck": true,
-    "strictArgCheck": false
-  }
-}
+```js
+// The earlier preflight/invoke pipeline, called as functions
+await ops.preflight({
+  packageAlias: "discordjs",
+  symbol: "TextChannel#send",
+  kind: "function",
+  target: "channel",
+  context: { channelId: "123456789012345678" },
+})
 ```
 
-### 4) Refresh Package + Symbol Catalog
-
-```json
-{
-  "mode": "bot",
-  "identityId": "default-bot",
-  "method": "automation.read",
-  "operation": "discord.meta.refresh",
-  "params": {
-    "force": true,
-    "includeDiff": true
-  }
-}
+```js
+// Log in as another identity and keep working in the same namespace
+await connect("ops-bot", { mode: "bot", token: vars.token });
+client.user.tag
 ```
-
-### 5) Execute Invocation (Safe by Default)
-
-```json
-{
-  "mode": "bot",
-  "identityId": "default-bot",
-  "method": "automation.write",
-  "operation": "discord.exec.invoke",
-  "params": {
-    "packageAlias": "discordjs",
-    "symbol": "TextChannel#send",
-    "kind": "function",
-    "args": ["hello from invoke"],
-    "target": "channel",
-    "context": {
-      "channelId": "123456789012345678"
-    },
-    "dryRun": false,
-    "requirePreflightPass": true,
-    "allowWrite": true
-  }
-}
-```
-
-### 6) Batch Invocation
-
-```json
-{
-  "mode": "bot",
-  "identityId": "default-bot",
-  "method": "automation.write",
-  "operation": "discord.exec.batch",
-  "params": {
-    "mode": "best_effort",
-    "haltOnPolicyBlock": false,
-    "maxParallelism": 4,
-    "dryRun": true,
-    "items": [
-      {
-        "packageAlias": "discordjs",
-        "symbol": "TextChannel#send",
-        "kind": "function",
-        "target": "channel",
-        "context": {
-          "channelId": "123456789012345678"
-        },
-        "args": ["hello from batch"]
-      }
-    ]
-  }
-}
-```
-
-## Legacy Dynamic Compatibility
-
-Legacy operation strings are not supported. Use only vNext operations:
-
-- `discord.meta.packages`
-- `discord.meta.symbols`
-- `discord.meta.preflight`
-- `discord.meta.refresh`
-- `discord.exec.invoke`
-- `discord.exec.batch`
-
-## Notes on Operation Counts
-
-If you expect thousands of discovered symbols, this is by design:
-
-- The MCP registry exposes a small, fixed operation surface.
-- Package discovery is exposed through `discord.meta.packages`.
-- Symbol discovery is exposed through `discord.meta.symbols`.
-- Execution preflight is exposed through `discord.meta.preflight`.
-- Catalog invalidation/refresh is exposed through `discord.meta.refresh`.
-- Single and batch execution are exposed through `discord.exec.invoke` and `discord.exec.batch`.
-- Runtime discovery includes `enum` exports (for example `ChannelType`, `ActivityType`).
-- Startup logs print loaded package aliases and versions.
 
 ## Security Guidance
 
-- Keep tokens private and rotate regularly.
-- Use minimum Discord permissions required.
-- Prefer `dryRun` for risky operations.
-- Use `allowWrite` only when intended.
-- Enable audit logging in production.
+- `run` executes code with the server's full authority. Run the server sandboxed (container/VM/jail) with only the network, filesystem and tokens you intend the model to use.
+- Keep tokens private and rotate regularly; give bots the minimum Discord permissions required.
+- Every `run` call is written to the audit log; enable `DISCORD_MCP_AUDIT_LOG_PATH` in production.
+- `DISCORD_MCP_BLOCK_HIGH_RISK`, `dryRun` and `allowWrite` apply to the `ops.*` functions only; code that uses `client` directly is bounded by the sandbox and the bot's Discord permissions.
 
 ## Scripts
 
