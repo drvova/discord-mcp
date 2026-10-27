@@ -55,7 +55,18 @@ const add = (node: SceneNode) => {
     order.push(node.id);
 };
 
-// 1. "DISCORD MCP": each letter draws on in turn, "MCP" in blurple.
+// 0. The card: the SVG export doesn't paint the canvas colour, so draw it,
+// or the light ink would vanish on GitHub's light theme.
+add({
+    ...base("card", { outTick: END, x: WIDTH / 2, y: HEIGHT / 2 }),
+    type: "rect",
+    size: constant({ width: WIDTH, height: HEIGHT }),
+    cornerRadius: constant(24),
+    style: { fill: fill(BACKGROUND) },
+});
+
+// 1. "DISCORD MCP": each letter draws on in turn, "MCP" in blurple. Spaces
+// aren't letters in a wordmark, so "MCP" is the last three.
 const word = monolineWordmark("DISCORD MCP", { capHeight: 92, polyline: true });
 const WORD_Y = 138;
 word.letters.forEach((letter, index) => {
@@ -69,7 +80,7 @@ word.letters.forEach((letter, index) => {
         type: "path",
         path: constant({ contours: [...letter.contours] }),
         style: {
-            stroke: stroke(index >= 8 ? BLURPLE : INK, word.stroke, {
+            stroke: stroke(index >= word.letters.length - 3 ? BLURPLE : INK, word.stroke, {
                 opacity: fadeOut(`${id}.opacity`),
             }),
         },

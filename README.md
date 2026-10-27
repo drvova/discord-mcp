@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/img/Discord_MCP_full_logo.svg" alt="Discord MCP" height="64">
+<img src="assets/img/banner.svg" width="100%" alt="discord-mcp. One tool. Your code. It remembers. A request travels from the model through the run tool and the agent to Discord.">
 
 ### Discord for language models, through one tool that runs code
 
@@ -363,6 +363,8 @@ The toolchain is [Rstack](https://rspack.rs): Rslib builds, Rstest tests, Rslint
 | `npm run dev` | Build, then rebuild and restart on change, with pretty logs |
 | `npm test` | Build, then run the Rstest suite (some tests spawn the built server) |
 | `npm run lint` · `npm run typecheck` · `npm run check` | Rslint: lint, type-check (TypeScript's native compiler), or both |
+
+The animated banner at the top is authored with [Clayzo](https://www.npmjs.com/package/clayzo) in [`assets/banner`](assets/banner), its own small project.
 
 The default branch is `new-architecture-main`.
 
