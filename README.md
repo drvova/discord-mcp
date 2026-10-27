@@ -131,7 +131,7 @@ DISCORD_MCP_AGENT_SOCK=... discord-mcp        # the MCP server: no DISCORD_TOKEN
 
 ### Prerequisites
 
-- Node.js 22.12+
+- Node.js 22.15+
 - npm
 - Discord bot token
 

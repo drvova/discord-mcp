@@ -5,7 +5,7 @@
     "main": "dist/bootstrap.js",
     "type": "module",
     "engines": {
-        "node": ">=22.12"
+        "node": ">=22.15"
     },
     "bin": {
         "discord-mcp": "./dist/bootstrap.js"
@@ -48,12 +48,12 @@
         "@discordjs/voice": "^0.19.2",
         "@hono/node-server": "^1.19.17",
         "@modelcontextprotocol/sdk": "^1.32.2",
-        "@opentelemetry/api": "^1.9.0",
-        "@opentelemetry/auto-instrumentations-node": "^0.75.0",
-        "@opentelemetry/exporter-prometheus": "^0.217.0",
-        "@opentelemetry/exporter-trace-otlp-http": "^0.217.0",
-        "@opentelemetry/resources": "~2.7.1",
-        "@opentelemetry/sdk-node": "^0.217.0",
+        "@opentelemetry/api": "~1.10.0",
+        "@opentelemetry/auto-instrumentations-node": "^0.82.0",
+        "@opentelemetry/exporter-prometheus": "^0.300.0",
+        "@opentelemetry/exporter-trace-otlp-http": "^0.300.0",
+        "@opentelemetry/resources": "^3.0.0",
+        "@opentelemetry/sdk-node": "^0.300.0",
         "acorn": "^8.19.0",
         "discord.js": "^14.27.0",
         "dotenv": "^17.2.0",
