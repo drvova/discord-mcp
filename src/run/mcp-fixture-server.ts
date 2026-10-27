@@ -1,52 +1,94 @@
 import { createServer, type Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { z } from "zod";
+import {
+    CallToolRequestSchema,
+    ListToolsRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 
 // A small upstream MCP server for tests: run directly for stdio, or start it
 // over streamable HTTP with startHttpFixture().
 
-export function createFixtureServer(): McpServer {
-    const server = new McpServer({ name: "fixture", version: "0.0.1" });
-
-    server.tool(
-        "add",
-        "Adds two numbers.\nSecond line is not part of the summary.",
-        { a: z.number(), b: z.number() },
-        async ({ a, b }) => ({
-            content: [{ type: "text", text: JSON.stringify({ sum: a + b }) }],
-        }),
-    );
-
-    server.tool(
-        "echo-text",
-        "Echoes text back.",
-        { text: z.string(), shout: z.boolean().optional() },
-        async ({ text, shout }) => ({
-            content: [{ type: "text", text: shout ? text.toUpperCase() : text }],
-        }),
-    );
-
-    server.registerTool(
-        "count",
-        {
-            description: "Returns structured content.",
-            inputSchema: { mode: z.enum(["fast", "slow"]) },
-            outputSchema: { count: z.number(), mode: z.string() },
+const TOOLS = [
+    {
+        name: "add",
+        description: "Adds two numbers.\nSecond line is not part of the summary.",
+        inputSchema: {
+            type: "object",
+            properties: { a: { type: "number" }, b: { type: "number" } },
+            required: ["a", "b"],
         },
-        async ({ mode }) => ({
-            content: [{ type: "text", text: "count is 3" }],
-            structuredContent: { count: 3, mode },
-        }),
+    },
+    {
+        name: "echo-text",
+        description: "Echoes text back.",
+        inputSchema: {
+            type: "object",
+            properties: { text: { type: "string" }, shout: { type: "boolean" } },
+            required: ["text"],
+        },
+    },
+    {
+        name: "count",
+        description: "Returns structured content.",
+        inputSchema: {
+            type: "object",
+            properties: { mode: { type: "string", enum: ["fast", "slow"] } },
+            required: ["mode"],
+        },
+        outputSchema: {
+            type: "object",
+            properties: { count: { type: "number" }, mode: { type: "string" } },
+            required: ["count", "mode"],
+        },
+    },
+    {
+        name: "fail",
+        description: "Always reports an error.",
+        inputSchema: { type: "object", properties: {} },
+    },
+];
+
+export function createFixtureServer(): Server {
+    const server = new Server(
+        { name: "fixture", version: "0.0.1" },
+        { capabilities: { tools: {} } },
     );
 
-    server.tool("fail", "Always reports an error.", async () => ({
-        content: [{ type: "text", text: "nope" }],
-        isError: true,
-    }));
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+
+    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+        const args = (request.params.arguments || {}) as Record<string, unknown>;
+        switch (request.params.name) {
+            case "add":
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: JSON.stringify({ sum: Number(args.a) + Number(args.b) }),
+                        },
+                    ],
+                };
+            case "echo-text": {
+                const text = String(args.text);
+                return {
+                    content: [{ type: "text", text: args.shout ? text.toUpperCase() : text }],
+                };
+            }
+            case "count":
+                return {
+                    content: [{ type: "text", text: "count is 3" }],
+                    structuredContent: { count: 3, mode: args.mode },
+                };
+            case "fail":
+                return { content: [{ type: "text", text: "nope" }], isError: true };
+            default:
+                throw new Error(`Unknown tool: ${request.params.name}`);
+        }
+    });
 
     return server;
 }
