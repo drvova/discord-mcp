@@ -1,8 +1,13 @@
 import { mkdtempSync, rmSync } from "node:fs";
+import type { Server as HttpServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, onTestFinished, test } from "@rstest/core";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { serve } from "@hono/node-server";
 import { DiscordService } from "../discord-service.js";
 import { bindDiscordOperationsService } from "../gateway/discord-operations.js";
 import { createHttpApp } from "../http-app.js";
@@ -139,4 +144,39 @@ test("binding an unknown identity fails clearly without running the code", async
     expect(result.ok).toBe(false);
     expect(result.text).toMatch(/Unknown identity 'nobody'/);
     expect(result.text).not.toMatch(/should not run/);
+});
+
+test("an MCP client can hold a session over SSE through the Node HTTP adapter", async () => {
+    const mcpServer = new Server({ name: "test", version: "0" }, { capabilities: { tools: {} } });
+    mcpServer.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: listTools() }));
+    const app = createHttpApp({
+        port: 0,
+        server: mcpServer,
+        callTool: async () => ({ content: [{ type: "text", text: "ran" }] }),
+        getOAuthManager: () => {
+            throw new Error("unused");
+        },
+        parseBooleanQuery: () => undefined,
+        listTools,
+    });
+    const errors: string[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => errors.push(args.map(String).join(" "));
+    onTestFinished(() => {
+        console.error = originalError;
+    });
+    // A plain HTTP server (serve() is typed for HTTP/2 and HTTPS too).
+    const httpServer = serve({ fetch: app.fetch, port: 0, hostname: "127.0.0.1" }) as HttpServer;
+    onTestFinished(() => new Promise<void>((resolveClose) => {
+        httpServer.closeAllConnections();
+        httpServer.close(() => resolveClose());
+    }));
+    await new Promise<void>((resolveListen) => httpServer.once("listening", () => resolveListen()));
+    const { port } = httpServer.address() as { port: number };
+
+    const client = new Client({ name: "sse-test", version: "0" });
+    await client.connect(new SSEClientTransport(new URL(`http://127.0.0.1:${port}/sse`)));
+    onTestFinished(() => client.close());
+    expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(["run"]);
+    expect(errors.join("\n")).not.toMatch(/ERR_HTTP_HEADERS_SENT|Cannot write headers/);
 });

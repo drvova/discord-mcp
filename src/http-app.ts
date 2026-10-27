@@ -104,14 +104,17 @@ export function createHttpApp(deps: HttpAppDependencies) {
     const activeTransports = new Map<string, SSEServerTransport>();
     const app = new Hono<{ Bindings: HttpBindings }>();
 
-    app.use(
-        "*",
-        cors({
-            origin: "*",
-            allowMethods: ["GET", "POST", "OPTIONS"],
-            allowHeaders: ["Content-Type", "Authorization"],
-        }),
-    );
+    const corsMiddleware = cors({
+        origin: "*",
+        allowMethods: ["GET", "POST", "OPTIONS"],
+        allowHeaders: ["Content-Type", "Authorization"],
+    });
+    // /sse writes its response straight to Node's ServerResponse (the MCP SSE
+    // transport) and returns RESPONSE_ALREADY_SENT. CORS headers added on top
+    // turn that marker into a regular response that @hono/node-server 2 then
+    // tries to write again (ERR_HTTP_HEADERS_SENT), so /sse skips CORS. Its
+    // headers were never applied there anyway: the transport sends first.
+    app.use("*", (c, next) => (c.req.path === "/sse" ? next() : corsMiddleware(c, next)));
 
     app.use("*", async (c, next) => {
         const startedAt = Date.now();
