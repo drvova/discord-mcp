@@ -45,7 +45,7 @@
     "homepage": "https://github.com/sashathelambo/discord-mcp#readme",
     "dependencies": {
         "@discordjs/opus": "^0.10.0",
-        "@discordjs/voice": "^0.18.0",
+        "@discordjs/voice": "^0.19.2",
         "@hono/node-server": "^1.19.17",
         "@modelcontextprotocol/sdk": "^1.32.2",
         "@opentelemetry/api": "^1.9.0",
@@ -55,7 +55,7 @@
         "@opentelemetry/resources": "~2.7.1",
         "@opentelemetry/sdk-node": "^0.217.0",
         "acorn": "^8.19.0",
-        "discord.js": "^14.21.0",
+        "discord.js": "^14.27.0",
         "dotenv": "^17.2.0",
         "hono": "^4.13.14",
         "pino": "^9.9.5",
