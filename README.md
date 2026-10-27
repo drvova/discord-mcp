@@ -59,7 +59,7 @@ flowchart LR
         N["Persistent JS namespace<br>client · describe · ops · kept helpers"]
         U["mcp.server.tool()"]
     end
-    S -- "agent:id placeholder<br>(Unix socket)" --> A["discord-mcp agent<br>holds the decrypted tokens"]
+    N -- "agent:id placeholder<br>(Unix socket)" --> A["discord-mcp agent<br>holds the decrypted tokens"]
     A -- "real token<br>REST + gateway" --> D[("Discord")]
     U --> O["Other MCP servers<br>https or stdio"]
 ```
