@@ -24,9 +24,7 @@ import {
     isDiscordMetaRefreshOperation,
     isDiscordMetaSymbolsOperation,
     isDiscordWriteOperation,
-    resolveDomainMethod,
     resolveOperation,
-    resolveOperationForMethod,
     type DiscordOperation,
     type DomainMethod,
 } from "./domain-registry.js";
@@ -49,7 +47,7 @@ export function bindDiscordOperationsService(service: DiscordService): void {
 
 export type RiskTier = "low" | "medium" | "high";
 
-export type ParsedDiscordManageCall = {
+export type PreparedDiscordOperation = {
     mode: IdentityMode;
     identityId: string;
     method: DomainMethod;
@@ -82,74 +80,6 @@ function getSchemaForOperation(operation: DiscordOperation): AnyZodObject {
     return schema;
 }
 
-function getSchemaKeyOrder(schema: AnyZodObject): string[] {
-    return Object.keys(schema.shape);
-}
-
-function coerceArgsToParams(
-    rawArgs: unknown,
-    paramKeys: string[],
-    operationLabel: string,
-): Record<string, unknown> {
-    if (Array.isArray(rawArgs)) {
-        if (rawArgs.length > paramKeys.length) {
-            throw new Error(
-                `Operation '${operationLabel}' received too many arguments. Expected at most ${paramKeys.length}, got ${rawArgs.length}.`,
-            );
-        }
-
-        const params: Record<string, unknown> = {};
-        for (let index = 0; index < rawArgs.length; index += 1) {
-            const key = paramKeys[index];
-            if (!key) {
-                continue;
-            }
-            params[key] = rawArgs[index];
-        }
-        return params;
-    }
-
-    if (rawArgs && typeof rawArgs === "object") {
-        return rawArgs as Record<string, unknown>;
-    }
-
-    throw new Error(
-        `discord_manage operation '${operationLabel}' requires 'params' or 'args' as an object or array.`,
-    );
-}
-
-function coerceOperationArgs(
-    rawArgs: unknown,
-    operation: DiscordOperation,
-): Record<string, unknown> {
-    const schema = getSchemaForOperation(operation);
-    const paramKeys = getSchemaKeyOrder(schema);
-    return coerceArgsToParams(rawArgs, paramKeys, operation);
-}
-
-function normalizeParamsBySchemaOrder(
-    operation: DiscordOperation,
-    params: Record<string, unknown>,
-): Record<string, unknown> {
-    const schemaKeys = getSchemaKeyOrder(getSchemaForOperation(operation));
-    const ordered: Record<string, unknown> = {};
-    const knownKeys = new Set<string>();
-
-    for (const key of schemaKeys) {
-        if (key in params) {
-            ordered[key] = params[key];
-            knownKeys.add(key);
-        }
-    }
-
-    for (const [key, value] of Object.entries(params)) {
-        if (!knownKeys.has(key)) {
-            ordered[key] = value;
-        }
-    }
-
-    return ordered;
-}
 
 function inferRiskTier(
     operation: DiscordOperation,
@@ -194,73 +124,26 @@ function enforceOperationPolicy(
     return riskTier;
 }
 
-export function parseDiscordManageCall(
-    name: unknown,
-    rawArgs: unknown,
-): ParsedDiscordManageCall {
-    if (name !== "discord_manage") {
-        throw new Error(
-            `Unknown operation entry point: ${String(name)}. Use ops.<operation>(params) from the run tool.`,
-        );
-    }
-
-    if (!rawArgs || typeof rawArgs !== "object" || Array.isArray(rawArgs)) {
-        throw new Error(
-            "discord_manage arguments must be an object with 'mode', 'identityId', 'operation', and 'params' or 'args'.",
-        );
-    }
-
-    const args = rawArgs as Record<string, unknown>;
-    const mode = (args.mode || "bot") as IdentityMode;
-    const identityId =
-        (typeof args.identityId === "string" && args.identityId.trim()) ||
-        `default-${mode}`;
-    const rawMethod = args.method;
-    const rawOperation = args.operation;
-    const rawParams = args.params;
-    const rawMethodArgs = args.args;
-
-    if (mode !== "bot" && mode !== "user") {
-        throw new Error("discord_manage requires 'mode' to be either 'bot' or 'user'.");
-    }
-
-    if (typeof rawOperation !== "string") {
-        throw new Error("discord_manage requires 'operation' as a string.");
-    }
-
-    if (rawParams === undefined && rawMethodArgs === undefined) {
-        throw new Error(
-            "discord_manage requires either 'params' (recommended) or 'args'.",
-        );
-    }
-
-    const rawPayload = rawParams !== undefined ? rawParams : rawMethodArgs;
-    const operation = resolveOperation(rawOperation);
-
-    let method: DomainMethod;
-    if (typeof rawMethod === "string" && rawMethod.trim()) {
-        method = resolveDomainMethod(rawMethod);
-        resolveOperationForMethod(method, operation);
-    } else {
-        method = getDomainMethodForOperation(operation);
-    }
-
-    const baseParams = coerceOperationArgs(rawPayload, operation);
-
-    const normalizedParams = normalizeParamsBySchemaOrder(operation, baseParams);
-    const parsedParams = getSchemaForOperation(operation).parse(
-        normalizedParams,
+// Validates an ops.<name>(params) call against its schema and the identity
+// policy (no writes in user mode; DISCORD_MCP_BLOCK_HIGH_RISK).
+export function prepareDiscordOperation(input: {
+    mode: IdentityMode;
+    identityId: string;
+    operation: string;
+    params?: Record<string, unknown>;
+}): PreparedDiscordOperation {
+    const operation = resolveOperation(input.operation);
+    const params = getSchemaForOperation(operation).parse(
+        input.params ?? {},
     ) as Record<string, unknown>;
 
-    const riskTier = enforceOperationPolicy(mode, operation, parsedParams);
-
     return {
-        mode,
-        identityId,
-        method,
+        mode: input.mode,
+        identityId: input.identityId,
+        method: getDomainMethodForOperation(operation),
         operation,
-        params: parsedParams,
-        riskTier,
+        params,
+        riskTier: enforceOperationPolicy(input.mode, operation, params),
     };
 }
 
@@ -842,8 +725,8 @@ async function executeBatchOperation(
     );
 }
 
-export async function executeDiscordManageOperation(
-    parsedCall: ParsedDiscordManageCall,
+export async function executeDiscordOperation(
+    parsedCall: PreparedDiscordOperation,
 ): Promise<string> {
     const { operation, params } = parsedCall;
     const startedAt = Date.now();
@@ -857,7 +740,7 @@ export async function executeDiscordManageOperation(
 
     try {
         const rawResult = await withSpan(
-            "discord_manage.execute",
+            "discord.operation.execute",
             {
                 "discord.mode": parsedCall.mode,
                 "discord.method": parsedCall.method,
@@ -1055,11 +938,7 @@ export async function runDiscordOperation(input: {
     operation: string;
     params?: Record<string, unknown>;
 }): Promise<unknown> {
-    const parsedCall = parseDiscordManageCall("discord_manage", {
-        mode: input.mode,
-        identityId: input.identityId,
-        operation: input.operation,
-        params: input.params ?? {},
-    });
-    return parseJsonMaybe(await executeDiscordManageOperation(parsedCall));
+    return parseJsonMaybe(
+        await executeDiscordOperation(prepareDiscordOperation(input)),
+    );
 }

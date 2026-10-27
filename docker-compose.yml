@@ -8,6 +8,10 @@ services:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - DISCORD_GUILD_ID=${DISCORD_GUILD_ID}
       - NODE_ENV=production
+      - DISCORD_MCP_UPSTREAMS=${DISCORD_MCP_UPSTREAMS:-}
+    volumes:
+      # Definitions the model keeps through the run tool
+      - discord-mcp-data:/data
     stdin_open: true
     tty: true
     restart: unless-stopped
@@ -22,6 +26,9 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+volumes:
+  discord-mcp-data:
 
 networks:
   discord-mcp-network:
