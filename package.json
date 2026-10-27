@@ -44,7 +44,6 @@
     },
     "homepage": "https://github.com/sashathelambo/discord-mcp#readme",
     "dependencies": {
-        "@discordjs/opus": "^0.10.0",
         "@discordjs/voice": "^0.19.2",
         "@hono/node-server": "^2.1.5",
         "@modelcontextprotocol/sdk": "^1.32.2",
@@ -58,6 +57,7 @@
         "discord.js": "^14.27.0",
         "dotenv": "^18.0.9",
         "hono": "^4.13.14",
+        "opusscript": "^0.0.8",
         "pino": "^10.4.0",
         "pino-pretty": "^13.2.0",
         "undici": "^6.29.1",
