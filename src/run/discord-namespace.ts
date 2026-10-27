@@ -18,10 +18,8 @@ import {
     listLoadedDiscordRuntimePackages,
     type GetDiscordPackageSymbolsOptions,
 } from "../gateway/discordjs-symbol-catalog.js";
-import type {
-    IdentityMode,
-    LocalEncryptedIdentityStore,
-} from "../identity/local-encrypted-identity-store.js";
+import type { IdentityMode } from "../identity/local-encrypted-identity-store.js";
+import type { IdentitySource } from "../identity/identity-source.js";
 import { CodeHarness, type DescribeHooks, type RunResult } from "./harness.js";
 import { McpUpstreams, type UpstreamConfig } from "./mcp-upstreams.js";
 import { LatencyTracker } from "../net/latency.js";
@@ -35,7 +33,7 @@ export type BoundIdentity = { id: string; mode: IdentityMode };
 
 export type DiscordNamespaceDeps = {
     getService: () => DiscordService | undefined;
-    identityStore: LocalEncryptedIdentityStore;
+    identityStore: IdentitySource;
     persistDir?: string;
     upstreams?: McpUpstreams;
     network?: NetworkConfig;
@@ -74,6 +72,8 @@ Persistence
 Working objects (Discord identities)
   identities()               -> [{ id, mode, bound }]
   connect(id, { mode, token }) -> create/update an identity, log in, bind it
+                               (direct mode only: with the discord-mcp agent, tokens
+                               never pass through here; use \`discord-mcp identity add\`)
   bind(id)                   -> log in as an existing identity; sets \`client\`
   client                     -> the bound discord.js Client (drive its full API)
   identity                   -> { id, mode } of the bound identity, if any
@@ -262,6 +262,10 @@ export function createDiscordHarness(deps: DiscordNamespaceDeps): DiscordHarness
     };
 
     const bind = async (identityId: string): Promise<discordJs.Client> => {
+        if (!identityStore.getIdentity(identityId)) {
+            // The agent may have been given new identities since we last asked.
+            await identityStore.refresh?.();
+        }
         const record = identityStore.getIdentity(identityId);
         if (!record) {
             const known = identityStore.listIdentityIds();
@@ -291,6 +295,11 @@ export function createDiscordHarness(deps: DiscordNamespaceDeps): DiscordHarness
         identityId: string,
         options: { mode?: IdentityMode; token: string },
     ): Promise<discordJs.Client> => {
+        if (identityStore.managedByAgent) {
+            throw new Error(
+                "Tokens are held by the discord-mcp agent and never pass through the run tool. Add an identity with `discord-mcp identity add <id>`, then bind(id).",
+            );
+        }
         if (!options?.token) {
             throw new Error("connect(id, { mode, token }) requires a token.");
         }
@@ -315,7 +324,10 @@ export function createDiscordHarness(deps: DiscordNamespaceDeps): DiscordHarness
         network: () => {
             const client = getService()?.getClient();
             return {
-                ...describeNetwork(network),
+                secrets: identityStore.managedByAgent
+                    ? "agent: tokens are held by the discord-mcp agent; this process only has agent:<id> placeholders"
+                    : "direct: tokens are held in this process",
+                ...describeNetwork(network, { agent: identityStore.managedByAgent }),
                 latency: latency.all(),
                 gateway: boundIdentity
                     ? {
@@ -383,7 +395,7 @@ export function createDiscordHarness(deps: DiscordNamespaceDeps): DiscordHarness
 export function adoptStartupIdentity(
     discordHarness: DiscordHarness,
     service: DiscordService,
-    identityStore: LocalEncryptedIdentityStore,
+    identityStore: IdentitySource,
 ): Promise<discordJs.Client> | undefined {
     if (!service.isClientReady()) {
         return undefined;

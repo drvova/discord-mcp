@@ -74,6 +74,9 @@ src/index.ts.backup
 *.pem
 *.key
 *.crt
+# Test-only self-signed certificates (see src/net/__fixtures__/README.md)
+!src/net/__fixtures__/*.key
+!src/net/__fixtures__/*.crt
 secrets/
 config/production.json
 

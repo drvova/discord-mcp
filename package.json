@@ -61,6 +61,7 @@
         "pino": "^9.9.5",
         "pino-pretty": "^13.1.2",
         "undici": "^6.29.1",
+        "ws": "^8.22.0",
         "zod": "^3.25.76"
     },
     "devDependencies": {
@@ -68,6 +69,7 @@
         "@rslint/core": "^0.9.5",
         "@rstest/core": "^0.12.5",
         "@types/node": "^24.0.15",
+        "@types/ws": "^8.18.2",
         "concurrently": "^9.2.1",
         "cross-env": "^7.0.3"
     }

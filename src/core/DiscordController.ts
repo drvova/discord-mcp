@@ -9,7 +9,11 @@ export class DiscordController {
     private readonly configManager: ConfigManager;
     private readonly logger: Logger;
 
-    constructor(private readonly network: DiscordNetworkOptions = {}) {
+    constructor(
+        private readonly network: DiscordNetworkOptions = {},
+        // Overrides the env-derived login (agent mode logs in with a placeholder).
+        private readonly authOverride?: { tokenType: "bot" | "user"; token: string },
+    ) {
         this.configManager = ConfigManager.getInstance();
         this.logger = Logger.getInstance();
     }
@@ -19,7 +23,9 @@ export class DiscordController {
             this.logger.info("Initializing Discord Controller");
 
             // Initialize Discord service with optional auth config
-            const authConfig = this.configManager.getConfig().auth;
+            const authConfig = this.authOverride
+                ? { ...this.configManager.getConfig().auth, ...this.authOverride }
+                : this.configManager.getConfig().auth;
             this.discordService = new DiscordService(authConfig, this.network);
             await this.discordService.initialize();
 

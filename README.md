@@ -1,6 +1,6 @@
 # Discord MCP Server
 
-> **⚠️ Security Notice**: The single tool this server exposes **runs arbitrary JavaScript with the server's full authority** — every Discord token it holds, the network, the filesystem and the process. That is the design, not a mode: there is no switch that turns it off. **Run the server sandboxed** (a container, VM or jail with only the access you intend to grant), and treat its tokens as exposed to whatever drives the tool.
+> **⚠️ Security Notice**: The single tool this server exposes **runs arbitrary JavaScript with the server's full authority** — every Discord token it holds, the network, the filesystem and the process. That is the design, not a mode: there is no switch that turns it off. **Run the server sandboxed** (a container, VM or jail with only the access you intend to grant). Keep Discord tokens out of it with `discord-mcp agent` (ssh-agent style, see "Secrets: the SSH model"): then the code can use Discord but cannot read a token. Without the agent, treat the server's tokens as exposed to whatever drives the tool.
 
 Discord MCP Server exposes Discord to a model through **one tool that runs code**. The model discovers the live discord.js API, writes its own helpers, and reuses and refines them across calls and restarts — instead of choosing from a fixed menu of verbs.
 
@@ -85,10 +85,37 @@ for (const n of new Set(refs)) {
 ### Network: proxy, encryption and latency
 
 - **Proxy.** Set `DISCORD_MCP_PROXY` to an `http://` or `https://` proxy and the server sends Discord REST requests (every action: sending messages, fetching, moderating), upstream MCP servers over HTTP, and the run tool's `fetch` through it. Requests are tunnelled with `CONNECT`, so TLS stays end-to-end and the proxy never sees plaintext. An invalid or SOCKS proxy URL stops the server at startup rather than silently connecting directly.
-- **Not proxied:** the Discord gateway WebSocket (events and heartbeats). `@discordjs/ws` has no proxy option, so it connects directly; it is always `wss://`. Stdio upstream servers are local processes.
+- **Not proxied:** in direct mode, the Discord gateway WebSocket (events and heartbeats): `@discordjs/ws` has no proxy option, so it connects directly; it is always `wss://`. With the agent (below), the agent owns that connection and tunnels it through the proxy too. Stdio upstream servers are local processes.
+- **known_hosts.** Upstream MCP servers and an `https://` proxy are pinned like SSH hosts: the first connection records the SHA-256 of the server's TLS public key in `~/.config/discord-mcp/known_hosts`, and later connections must present the same key (normal certificate checks still apply first). A changed key is refused with a "REMOTE HOST IDENTIFICATION HAS CHANGED" error; if the rotation is expected, `discord-mcp known-hosts remove HOST:PORT`. Set `DISCORD_MCP_STRICT_HOST_KEY_CHECKING=yes` to refuse hosts that are not already listed. Discord itself is not pinned: its certificates rotate frequently.
 - **Encrypted upstreams only.** Upstream MCP server URLs must be `https://`; plain `http://` is refused unless it points at this machine (localhost). Certificate verification is required: with `NODE_TLS_REJECT_UNAUTHORIZED=0` the server refuses https upstreams.
 - **Latency.** Every Discord REST request is timed per identity and every upstream tool call per server. `network()` in the run tool shows the proxy (credentials removed), what is and isn't proxied, the TLS policy, latency stats (count, errors, last, avg, p50, p95) and the gateway ping. `mcpServers()` and `describe(client)` include the same stats. With OpenTelemetry on, they are exported as `discord_mcp_network_latency_ms`.
 - **Tokens stay out of it.** Latency is labelled by identity name (`default-bot`) or server name, never by token. Outgoing-request trace spans have Discord webhook/interaction tokens removed from their paths and query strings stripped (`/webhooks/123/:token`). The proxy URL is shown without its credentials.
+
+### Secrets: the SSH model
+
+Discord tokens are handled the way SSH handles private keys.
+
+| SSH | discord-mcp |
+| --- | --- |
+| `~/.ssh/id_*`, mode 600, passphrase-protected | `~/.config/discord-mcp/identities`, mode 600, encrypted with AES-256-GCM under a key derived from your passphrase (scrypt) |
+| `ssh-add` / `ssh-add -l` / `ssh-keygen -p` | `discord-mcp identity add ID` / `identity list` / `identity passwd` (plus `identity remove ID`) |
+| `ssh-agent` + `SSH_AUTH_SOCK` | `discord-mcp agent` + `DISCORD_MCP_AGENT_SOCK` |
+| the agent signs; keys never leave it | the agent puts the token on Discord requests; the server only ever holds `agent:<id>` |
+| "UNPROTECTED PRIVATE KEY FILE!" | secret files readable by others are refused, with the `chmod` that fixes them |
+| `known_hosts`, `StrictHostKeyChecking` | `~/.config/discord-mcp/known_hosts`, `DISCORD_MCP_STRICT_HOST_KEY_CHECKING` (see Network) |
+
+```bash
+discord-mcp identity add default-bot          # prompts for the token and a passphrase (hidden)
+eval "$(discord-mcp agent)" &                 # prompts for the passphrase, prints the socket to export
+DISCORD_MCP_AGENT_SOCK=... discord-mcp        # the MCP server: no DISCORD_TOKEN anywhere
+```
+
+- **How the agent works.** The server's discord.js client logs in with the placeholder `agent:default-bot`. Its REST requests go to the agent over the Unix socket, and the agent replaces the placeholder `Authorization` header with the real token before forwarding to `https://discord.com/api`. The gateway URL Discord returns is swapped for an agent address, and the agent replaces the token inside the gateway `IDENTIFY`/`RESUME` frames. So code in the `run` tool can *use* Discord (`client`, `ops.*`, its own helpers) but cannot *read* a token: not through `client.token`, the auth config, `process.env`, the encrypted file, or the agent's API.
+- **Tokens only go to Discord.** REST is always forwarded to the configured Discord API base, whatever path a client sends. The agent connects gateways only to URLs Discord itself returned, which clients see as opaque handles, and only on `wss://*.discord.gg`.
+- **Adding identities.** `discord-mcp identity add` encrypts into the file and, when `DISCORD_MCP_AGENT_SOCK` is set, also loads the identity into the running agent (like `ssh-add`); then `bind("id")` in the run tool. `connect()` in the run tool is disabled with the agent, so tokens never pass through the model. Tokens and passphrases are read from a hidden prompt, a mode 600 file (`--token-file`, `DISCORD_MCP_PASSPHRASE_FILE`), or stdin, never from command-line arguments, which every user can see in `ps`. `--token-env DISCORD_TOKEN` helps migrate an existing environment variable.
+- **Unattended agents** (containers, services): set `DISCORD_MCP_PASSPHRASE_FILE` to a mode 600 file (for a Docker secret, give it `mode: 0400`).
+- **Direct mode** (no `DISCORD_MCP_AGENT_SOCK`, tokens from `DISCORD_TOKEN`) still works but keeps tokens in the server process, where `run` code can read them; the server warns at startup. In both modes, secret environment variables are removed from `process.env` once read.
+- **Threat model.** Like ssh-agent, this protects tokens from code running *in the server*, not from other processes running as the same OS user with debugging rights. Start the agent separately from the server (not as its child), and for a stronger boundary run it as a different OS user or in its own container, sharing only the socket. Anything that can reach the socket can *use* the identities, exactly like SSH agent forwarding.
 
 ### Runtime
 
@@ -141,7 +168,12 @@ DISCORD_GUILD_ID=your_guild_id_here
 # Optional user-mode token
 # DISCORD_USER_TOKEN=your_discord_user_token
 
-# Optional encrypted identity store
+# Recommended instead of DISCORD_TOKEN: keep tokens in the discord-mcp agent
+# (see "Secrets: the SSH model"); the server then only needs:
+# DISCORD_MCP_AGENT_SOCK=/run/user/1000/discord-mcp/agent.sock
+# DISCORD_MCP_STRICT_HOST_KEY_CHECKING=accept-new   # or yes
+
+# Legacy direct-mode identity store (connect() persistence)
 # DISCORD_MCP_MASTER_KEY=your_32_byte_key_material
 # DISCORD_MCP_IDENTITY_STORE_PATH=./.discord-mcp-identities.enc
 
@@ -264,6 +296,7 @@ client.user.tag
 ## Security Guidance
 
 - `run` executes code with the server's full authority. Run the server sandboxed (container/VM/jail) with only the network, filesystem and tokens you intend the model to use.
+- Keep tokens out of the server process: use `discord-mcp agent` (see "Secrets: the SSH model"). In direct mode, `run` code can read the tokens.
 - Keep tokens private and rotate regularly; give bots the minimum Discord permissions required.
 - Every `run` call is written to the audit log; enable `DISCORD_MCP_AUDIT_LOG_PATH` in production.
 - `DISCORD_MCP_BLOCK_HIGH_RISK`, `dryRun` and `allowWrite` apply to the `ops.*` functions only; code that uses `client` directly is bounded by the sandbox and the bot's Discord permissions.
