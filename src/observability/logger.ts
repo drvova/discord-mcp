@@ -55,10 +55,13 @@ function resolveLogStyleDecision(): LogStyleDecision {
     };
 }
 
+// Logs go to stderr: in stdio mode, stdout carries the MCP protocol and any
+// other bytes on it corrupt the stream.
 function buildPrettyTransport() {
     return pino.transport({
         target: "pino-pretty",
         options: {
+            destination: 2,
             colorize: parseBoolean(process.env.LOG_COLOR, process.stderr.isTTY),
             singleLine: true,
             levelFirst: true,
@@ -119,7 +122,7 @@ const baseLogger = pino(
         },
         mixin: buildTraceContextBindings,
     },
-    logStyle === "pretty" ? buildPrettyTransport() : undefined,
+    logStyle === "pretty" ? buildPrettyTransport() : pino.destination(2),
 );
 
 if (baseLogger.isLevelEnabled("debug")) {
