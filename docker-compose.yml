@@ -9,6 +9,7 @@ services:
       - DISCORD_GUILD_ID=${DISCORD_GUILD_ID}
       - NODE_ENV=production
       - DISCORD_MCP_UPSTREAMS=${DISCORD_MCP_UPSTREAMS:-}
+      - DISCORD_MCP_PROXY=${DISCORD_MCP_PROXY:-}
     volumes:
       # Definitions the model keeps through the run tool
       - discord-mcp-data:/data

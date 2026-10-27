@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
     Client,
     Collection,
+    DefaultRestOptions,
     GatewayIntentBits,
     Guild,
     GuildEmoji,
@@ -15,7 +16,9 @@ import {
     ThreadChannel,
     User,
 } from "discord.js";
+import type { Dispatcher } from "undici";
 import { AuthConfigSchema, SwitchTokenSchema } from "./types.js";
+import type { LatencyTracker } from "./net/latency.js";
 import { DEFAULT_DISCORD_INTENTS } from "./core/ConfigManager.js";
 import { Logger } from "./core/Logger.js";
 import {
@@ -129,14 +132,28 @@ const DYNAMIC_WRITE_ALLOWLIST_PATTERNS: RegExp[] = [
     /^[A-Za-z_$][A-Za-z0-9_$]*#send$/,
 ];
 
+// How the Discord REST client reaches the network: an optional proxy
+// dispatcher, and a tracker that times every REST request.
+export type DiscordNetworkOptions = {
+    dispatcher?: Dispatcher;
+    latency?: LatencyTracker;
+};
+
 export class DiscordService {
     private client: Client;
+    // Names the identity in latency samples; never the token itself.
+    private latencyLabel: string;
+    private readonly network: DiscordNetworkOptions;
     private defaultGuildId?: string;
     private isReady = false;
     private currentAuthConfig: z.infer<typeof AuthConfigSchema>;
     private readonly logger = Logger.getInstance().child("discord-service");
 
-    constructor(authConfig?: z.infer<typeof AuthConfigSchema>) {
+    constructor(
+        authConfig?: z.infer<typeof AuthConfigSchema>,
+        network: DiscordNetworkOptions = {},
+    ) {
+        this.network = network;
         const resolvedIntents =
             authConfig?.intents && authConfig.intents.length > 0
                 ? [...authConfig.intents]
@@ -154,11 +171,16 @@ export class DiscordService {
               });
 
         this.defaultGuildId = process.env.DISCORD_GUILD_ID;
+        this.latencyLabel = `default-${this.currentAuthConfig.tokenType}`;
         this.client = this.createClient(this.currentAuthConfig);
     }
 
     getCurrentAuthConfig(): z.infer<typeof AuthConfigSchema> {
         return { ...this.currentAuthConfig };
+    }
+
+    setLatencyLabel(label: string): void {
+        this.latencyLabel = label;
     }
 
     getClient(): Client {
@@ -683,8 +705,24 @@ export class DiscordService {
     private createClient(config: z.infer<typeof AuthConfigSchema>): Client {
         const intents = this.getIntentsForConfig(config.intents);
 
+        const { dispatcher, latency } = this.network;
+        const baseMakeRequest = DefaultRestOptions.makeRequest;
         return new Client({
             intents,
+            rest: {
+                ...(dispatcher ? { agent: dispatcher } : {}),
+                ...(latency
+                    ? {
+                          makeRequest: (url, init) =>
+                              latency.time(
+                                  "discord_rest",
+                                  this.latencyLabel,
+                                  () => baseMakeRequest(url, init),
+                                  (response) => response.status < 500,
+                              ),
+                      }
+                    : {}),
+            },
             partials:
                 config.tokenType === "user"
                     ? [

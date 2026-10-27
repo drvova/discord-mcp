@@ -6,6 +6,13 @@ import {
     StdioClientTransport,
 } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { LatencyStats, LatencyTracker } from "../net/latency.js";
+import {
+    assertEncryptedUpstream,
+    createFetch,
+    redactUrl,
+    type NetworkConfig,
+} from "../net/network.js";
 
 // MCP-as-code: other MCP servers' tools become plain async functions in the
 // run tool's namespace (`mcp.<server>.<tool>(args)`) instead of being
@@ -27,6 +34,8 @@ export type UpstreamStatus = {
     transport: "stdio" | "http" | "sse";
     connected: boolean;
     tools: string[];
+    url?: string;
+    latency?: LatencyStats;
     error?: string;
 };
 
@@ -198,6 +207,8 @@ export class McpUpstreams {
         private readonly options: {
             onError?: (name: string, error: unknown) => void;
             clientName?: string;
+            network?: NetworkConfig;
+            latency?: LatencyTracker;
         } = {},
     ) {}
 
@@ -217,10 +228,14 @@ export class McpUpstreams {
     }
 
     list(): UpstreamStatus[] {
-        return Array.from(this.entries.values()).map((entry) => ({
-            ...entry.status,
-            tools: [...entry.status.tools],
-        }));
+        return Array.from(this.entries.values()).map((entry) => {
+            const latency = this.options.latency?.stats("mcp", entry.status.name);
+            return {
+                ...entry.status,
+                tools: [...entry.status.tools],
+                ...(latency ? { latency } : {}),
+            };
+        });
     }
 
     functionInfo(fn: Function): UpstreamToolInfo | undefined {
@@ -318,19 +333,27 @@ export class McpUpstreams {
             throw new Error("An HTTP MCP server needs 'url' (or 'command' for stdio).");
         }
         const url = new URL(expandEnv(config.url));
+        const network = this.options.network || { tlsVerification: true };
+        assertEncryptedUpstream(url, network);
+        status.url = redactUrl(url);
         const requestInit = { headers: expandRecord(config.headers) };
+        const fetch = createFetch(network);
 
         if (status.transport === "sse") {
-            return attempt(new SSEClientTransport(url, { requestInit }));
+            return attempt(new SSEClientTransport(url, { requestInit, fetch }));
         }
         try {
-            return await attempt(new StreamableHTTPClientTransport(url, { requestInit }));
+            return await attempt(
+                new StreamableHTTPClientTransport(url, { requestInit, fetch }),
+            );
         } catch (error) {
             if (config.type === "http" || config.type === "streamable-http") {
                 throw error;
             }
             // Older servers only speak the HTTP+SSE transport.
-            const client = await attempt(new SSEClientTransport(url, { requestInit }));
+            const client = await attempt(
+                new SSEClientTransport(url, { requestInit, fetch }),
+            );
             status.transport = "sse";
             return client;
         }
@@ -353,14 +376,18 @@ export class McpUpstreams {
                 identifier = `${identifier}_`;
             }
             const label = `mcp.${name}.${identifier}`;
-            const call = async (args: Record<string, unknown> = {}) =>
-                unwrapToolResult(
-                    label,
-                    (await client.callTool({
+            const call = async (args: Record<string, unknown> = {}) => {
+                const callTool = () =>
+                    client.callTool({
                         name: tool.name,
                         arguments: args,
-                    })) as ToolCallResult,
-                );
+                    }) as Promise<ToolCallResult>;
+                const latency = this.options.latency;
+                const result = latency
+                    ? await latency.time("mcp", name, callTool, (r) => !r.isError)
+                    : await callTool();
+                return unwrapToolResult(label, result);
+            };
             this.info.set(call, {
                 signature: signatureFromSchema(identifier, tool.inputSchema),
                 doc: tool.description?.split("\n").find((line) => line.trim())?.trim(),

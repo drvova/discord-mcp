@@ -82,6 +82,14 @@ for (const n of new Set(refs)) {
 - The model can connect more at runtime with `mcpConnect(name, config)`; those last until the server restarts. Kept helpers that wrap `mcp.*` tools are saved like any other definition and work again once their server reconnects.
 - Upstream tools run with whatever credentials you configure for them, and the code that calls them runs with the server's full authority — the same sandboxing guidance applies.
 
+### Network: proxy, encryption and latency
+
+- **Proxy.** Set `DISCORD_MCP_PROXY` to an `http://` or `https://` proxy and the server sends Discord REST requests (every action: sending messages, fetching, moderating), upstream MCP servers over HTTP, and the run tool's `fetch` through it. Requests are tunnelled with `CONNECT`, so TLS stays end-to-end and the proxy never sees plaintext. An invalid or SOCKS proxy URL stops the server at startup rather than silently connecting directly.
+- **Not proxied:** the Discord gateway WebSocket (events and heartbeats). `@discordjs/ws` has no proxy option, so it connects directly; it is always `wss://`. Stdio upstream servers are local processes.
+- **Encrypted upstreams only.** Upstream MCP server URLs must be `https://`; plain `http://` is refused unless it points at this machine (localhost). Certificate verification is required: with `NODE_TLS_REJECT_UNAUTHORIZED=0` the server refuses https upstreams.
+- **Latency.** Every Discord REST request is timed per identity and every upstream tool call per server. `network()` in the run tool shows the proxy (credentials removed), what is and isn't proxied, the TLS policy, latency stats (count, errors, last, avg, p50, p95) and the gateway ping. `mcpServers()` and `describe(client)` include the same stats. With OpenTelemetry on, they are exported as `discord_mcp_network_latency_ms`.
+- **Tokens stay out of it.** Latency is labelled by identity name (`default-bot`) or server name, never by token. Outgoing-request trace spans have Discord webhook/interaction tokens removed from their paths and query strings stripped (`/webhooks/123/:token`). The proxy URL is shown without its credentials.
+
 ### Runtime
 
 - **HTTP runtime**: Hono (`@hono/node-server`)
@@ -142,6 +150,10 @@ DISCORD_GUILD_ID=your_guild_id_here
 
 # Optional: other MCP servers whose tools become mcp.<server>.<tool>() functions
 # DISCORD_MCP_UPSTREAMS=./mcp-servers.json
+
+# Optional: route Discord REST, upstream MCP (http) and run-tool fetch through a proxy
+# (http:// or https:// only; the Discord gateway WebSocket still connects directly)
+# DISCORD_MCP_PROXY=http://user:pass@proxy.internal:3128
 
 # Optional risk policy override (ops.* functions only)
 # DISCORD_MCP_BLOCK_HIGH_RISK=true

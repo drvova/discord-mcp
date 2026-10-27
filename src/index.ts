@@ -27,6 +27,8 @@ import {
     DISCORD_NAMESPACE_MANUAL,
 } from "./run/discord-namespace.js";
 import { loadUpstreamConfigs, McpUpstreams } from "./run/mcp-upstreams.js";
+import { LatencyTracker } from "./net/latency.js";
+import { loadNetworkConfig, redactUrl, type NetworkConfig } from "./net/network.js";
 import {
     listTools,
     parseRunArguments,
@@ -54,7 +56,20 @@ const identityStore = new LocalEncryptedIdentityStore();
 const identityWorkerPool = new IdentityWorkerPool();
 const logger = Logger.getInstance().child("server");
 
+// An invalid proxy setting stops the server: falling back to direct
+// connections would send traffic around the proxy the operator asked for.
+let network: NetworkConfig;
+try {
+    network = loadNetworkConfig();
+} catch (error) {
+    logger.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+}
+const latency = new LatencyTracker();
+
 const upstreams = new McpUpstreams({
+    network,
+    latency,
     onError: (name, error) =>
         logger.warn(`Upstream MCP server '${name}' unavailable`, error),
 });
@@ -63,6 +78,8 @@ const discordHarness = createDiscordHarness({
     getService: () => discordService,
     identityStore,
     upstreams,
+    network,
+    latency,
     onLoadError: (name, error) =>
         logger.warn(`Kept definition '${name}' failed to load`, error),
 });
@@ -90,7 +107,10 @@ function parseBooleanQuery(value: string | null): boolean | undefined {
 }
 
 async function initializeDiscord() {
-    discordController = new DiscordController();
+    discordController = new DiscordController({
+        dispatcher: network.dispatcher,
+        latency,
+    });
     try {
         await discordController.initialize();
     } catch (error) {
@@ -223,6 +243,16 @@ async function main() {
         } catch (error) {
             logger.warn(
                 `DISCORD_MCP_UPSTREAMS ignored: ${error instanceof Error ? error.message : String(error)}`,
+            );
+        }
+        if (network.proxyUrl) {
+            logger.info(
+                `Routing Discord REST, upstream MCP (http) and run-tool fetch through proxy ${redactUrl(network.proxyUrl)}; the Discord gateway WebSocket connects directly.`,
+            );
+        }
+        if (!network.tlsVerification) {
+            logger.warn(
+                "NODE_TLS_REJECT_UNAUTHORIZED=0 disables certificate verification; upstream MCP servers over https will be refused.",
             );
         }
         await initializeDiscord();

@@ -1,4 +1,4 @@
-import { DiscordService } from "../discord-service.js";
+import { DiscordService, type DiscordNetworkOptions } from "../discord-service.js";
 import { ConfigManager } from "./ConfigManager.js";
 import { Logger } from "./Logger.js";
 import { ErrorHandler } from "./ErrorHandler.js";
@@ -9,7 +9,7 @@ export class DiscordController {
     private readonly configManager: ConfigManager;
     private readonly logger: Logger;
 
-    constructor() {
+    constructor(private readonly network: DiscordNetworkOptions = {}) {
         this.configManager = ConfigManager.getInstance();
         this.logger = Logger.getInstance();
     }
@@ -20,7 +20,7 @@ export class DiscordController {
 
             // Initialize Discord service with optional auth config
             const authConfig = this.configManager.getConfig().auth;
-            this.discordService = new DiscordService(authConfig);
+            this.discordService = new DiscordService(authConfig, this.network);
             await this.discordService.initialize();
 
             this.logger.info("Discord Controller initialized successfully");
