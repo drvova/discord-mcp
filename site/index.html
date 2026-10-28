@@ -8,45 +8,51 @@
 <meta property="og:title" content="discord-mcp teaser">
 <meta property="og:description" content="One tool. Your code. The live Discord API.">
 <meta property="og:image" content="poster.jpg">
-<meta name="theme-color" content="#1C1E21">
+<meta name="theme-color" content="#101214">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@125,600;125,700&family=Barlow+Semi+Condensed:wght@500;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Michroma&family=Chakra+Petch:wght@500;600&family=Inter:wght@400;500&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
 <style>
   /* The trailer's player, built like a piece of late-90s / early-2000s kit:
      a graphite chassis, one brushed-titanium plate, molded rubber wherever a
      hand goes, mesh only where sound comes out, and a sewn-in spec tag.
-     One accent, used for state only. Assembled with the video by
-     .github/workflows/pages.yml. */
+     Follows the Y2K Universal Design Spec (v3): its palette tokens, type
+     roles and motion durations, one aerodynamic primary form with one
+     biomorphic channel, and one accent (Ion Blue) used for state only.
+     Assembled with the video by .github/workflows/pages.yml. */
   :root {
-    --graphite: #1C1E21;
-    --graphite-deep: #141517;
-    --rubber: #2A2D31;
-    --rubber-hi: #3A3D42;
-    --ti-dark: #8E9298;
-    --ti: #B9BCC2;
-    --ti-light: #C4C7CC;
-    --ink: #E6E7E9;
-    --ink-dim: #8A8F96;
-    --lcd: #0E0F11;
-    --accent: #8B95FF;          /* the one accent: state only (play, progress, level, focus) */
-    --accent-deep: #5865F2;
-    --seam: #4A4E54;
-    --label: "Barlow Semi Condensed", "DIN Alternate", "Helvetica Neue", Arial, sans-serif;
-    --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
-    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    /* Spec palette: obsidian, graphite, titanium, chrome, bone; one accent. */
+    --obsidian: #101214;
+    --graphite: #25292D;
+    --rubber: #2B2F33;          /* molded elastomer, from graphite */
+    --rubber-hi: #3A3F44;
+    --ti-dark: #7F858B;
+    --ti: #A6ABB1;              /* titanium */
+    --ti-light: #D4DCE1;        /* chrome, as the highlight only */
+    --ink: #E4E1D8;             /* bone */
+    --ink-dim: #A6ABB1;         /* titanium: 6.4:1 on graphite */
+    --accent: #65B8D6;          /* Ion Blue: state only (play, progress, level, status, focus) */
+    --accent-deep: #3E8FAE;
+    --accent-rgb: 101 184 214;
+    --seam: #4B555C;
+    --display: "Michroma", "Eurostile Extended", "Helvetica Neue", Arial, sans-serif;
+    --label: "Chakra Petch", "Rajdhani", "Helvetica Neue", Arial, sans-serif;
+    --body: "Inter", "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+    --mono: "IBM Plex Mono", "Space Mono", ui-monospace, Menlo, monospace;
+    --micro-t: 160ms;           /* motion tokens */
+    --panel-t: 320ms;
   }
   * { box-sizing: border-box; }
-  html { background: var(--graphite); }
+  html { background: var(--obsidian); }
   body {
     margin: 0;
     min-height: 100vh;
     color: var(--ink);
-    font: 500 16px/1.4 var(--label);
+    font: 400 16px/1.5 var(--body);
     /* Graphite: a matte base with a faint micro-grid and a soft falloff. */
     background:
       radial-gradient(rgb(255 255 255 / 0.025) 1px, transparent 1.5px) 0 0 / 3px 3px,
-      radial-gradient(120% 80% at 30% 0%, #26292D, var(--graphite) 55%, var(--graphite-deep));
+      radial-gradient(120% 80% at 30% 0%, #2A2E33, #1A1D21 50%, var(--obsidian));
   }
   .micro { font: 600 11px/1.2 var(--label); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-dim); }
   .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
@@ -60,17 +66,20 @@
   }
 
   /* --- Header: a model plate, typographic, no chrome --- */
-  .model { display: flex; justify-content: space-between; align-items: end; gap: 16px; flex-wrap: wrap; }
+  /* A system identifier and live status, then a squared headline. */
+  .sysbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+  .status { display: inline-flex; align-items: center; gap: 8px; font: 600 12px/1 var(--label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-dim); }
+  .status i { width: 8px; height: 8px; border-radius: 50%; background: var(--rubber-hi); box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.5); transition: background var(--micro-t), box-shadow var(--micro-t); }
+  .status.on { color: var(--accent); }
+  .status.on i { background: var(--accent); box-shadow: 0 0 6px rgb(var(--accent-rgb) / 0.6); }
   .model h1 {
-    margin: 4px 0 0;
-    font: 700 clamp(28px, 4.2vw, 46px)/1 var(--display);
-    font-stretch: 125%;
-    letter-spacing: -0.01em;
+    margin: 14px 0 0;
+    font: 400 clamp(24px, 3.6vw, 40px)/1.1 var(--display);
+    letter-spacing: 0.02em;
     color: var(--ink);
   }
-  .model h1 span { color: var(--ink-dim); font-weight: 600; }
-  .model p { margin: 6px 0 0; color: var(--ink-dim); font-size: 17px; }
-  .model .code { text-align: right; }
+  .model h1 span { color: var(--ink-dim); }
+  .model p { margin: 8px 0 0; color: var(--ink-dim); font-size: 16px; }
 
   /* --- The housing: one brushed-titanium plate, blunt at the left, tapering right --- */
   .housing {
@@ -114,7 +123,7 @@
     position: relative;
     padding: 8px;
     border-radius: 34px 10px 10px 34px / 34px 10px 10px 34px;
-    background: linear-gradient(#45494C, var(--rubber));
+    background: linear-gradient(var(--rubber-hi), var(--rubber));
     box-shadow: inset 0 2px 3px rgb(255 255 255 / 0.08), inset 0 -3px 6px rgb(0 0 0 / 0.45), 0 0 0 1px #1C1E1F, 0 1px 0 1px rgb(255 255 255 / 0.35);
   }
   .screen {
@@ -140,7 +149,7 @@
     padding: 0;
     cursor: pointer;
     background: none;
-    transition: opacity 180ms, transform 180ms cubic-bezier(0.3, 0, 0.2, 1);
+    transition: opacity var(--micro-t), transform var(--micro-t) cubic-bezier(0.3, 0, 0.2, 1);
   }
   .pod .bezel {
     position: absolute;
@@ -159,7 +168,7 @@
     place-items: center;
     transition: box-shadow 120ms, transform 120ms;
   }
-  .pod svg { width: 38%; height: 38%; fill: var(--accent); margin-left: 6%; filter: drop-shadow(0 0 6px rgb(139 149 255 / 0.45)); }
+  .pod svg { width: 38%; height: 38%; fill: var(--accent); margin-left: 6%; filter: drop-shadow(0 0 6px rgb(var(--accent-rgb) / 0.45)); }
   .pod .bezel::before, .pod .bezel::after {
     content: "";
     position: absolute;
@@ -187,13 +196,12 @@
   .playing .pod, .playing .cue { opacity: 0; pointer-events: none; }
   .playing .pod { transform: scale(0.94); }
 
-  /* A taped seam between the plate and the deck. */
-  .seam {
-    height: 9px;
-    margin: 12px 4px 10px 18px;
-    background: linear-gradient(transparent 3px, rgb(0 0 0 / 0.22) 3px 6px, transparent 6px);
-    border-top: 1px dashed rgb(0 0 0 / 0.28);
-  }
+  /* The one biomorphic gesture: a continuous channel pressed into the plate
+     between the screen and the deck, with a lit lower lip. */
+  .channel-groove { display: block; width: calc(100% - 22px); height: 26px; margin: 8px 4px 6px 18px; overflow: visible; }
+  .channel-groove path { fill: none; vector-effect: non-scaling-stroke; }
+  .channel-groove .cut { stroke: var(--graphite); stroke-width: 7; stroke-linecap: round; }
+  .channel-groove .lip { stroke: rgb(255 255 255 / 0.55); stroke-width: 1.5; stroke-linecap: round; }
 
   /* --- The deck: molded rubber, where the hands go --- */
   .deck {
@@ -203,7 +211,7 @@
     gap: 14px;
     padding: 10px 14px 10px 16px;
     border-radius: 30px 10px 10px 30px / 30px 10px 10px 30px;
-    background: linear-gradient(#45494C, var(--rubber));
+    background: linear-gradient(var(--rubber-hi), var(--rubber));
     box-shadow: inset 0 2px 3px rgb(255 255 255 / 0.08), inset 0 -3px 6px rgb(0 0 0 / 0.45), 0 0 0 1px #1C1E1F, 0 1px 0 1px rgb(255 255 255 / 0.35);
   }
   .key {
@@ -214,11 +222,11 @@
     padding: 0;
     cursor: pointer;
     border-radius: 58% 42% 52% 48% / 46% 54% 46% 54%;
-    background: linear-gradient(#4A4E52, #2E3135);
+    background: linear-gradient(#454A4F, var(--rubber));
     box-shadow: inset 0 1px 1px rgb(255 255 255 / 0.12), inset 0 -2px 4px rgb(0 0 0 / 0.5), 0 2px 0 #121315, 0 0 0 1px #15171A;
     display: grid;
     place-items: center;
-    transition: transform 90ms cubic-bezier(0.3, 0, 0.2, 1), box-shadow 90ms;
+    transition: transform var(--micro-t) cubic-bezier(0.3, 0, 0.2, 1), box-shadow var(--micro-t);
   }
   .key svg { width: 18px; height: 18px; fill: var(--ink); }
   .key:active { transform: translateY(2px); box-shadow: inset 0 2px 5px rgb(0 0 0 / 0.6), 0 0 0 #121315, 0 0 0 1px #15171A; }
@@ -234,13 +242,14 @@
     position: relative;
     padding: 6px 10px;
     border-radius: 6px;
-    background: var(--lcd);
+    /* smoked polymer: tinted, with a little internal depth */
+    background: linear-gradient(135deg, #13191D, rgb(130 150 160 / 0.16) 55%, var(--obsidian)), var(--obsidian);
     box-shadow: inset 0 2px 4px #000, 0 1px 0 rgb(255 255 255 / 0.08);
     font: 500 15px/1 var(--mono);
     letter-spacing: 0.04em;
     white-space: nowrap;
   }
-  .window .ghost { position: absolute; inset: 6px 10px; color: rgb(230 231 233 / 0.07); }
+  .window .ghost { position: absolute; inset: 6px 10px; color: rgb(228 225 216 / 0.07); }
   .window .digits { position: relative; color: var(--ink); }
 
   /* The scrubber: a recessed channel. Played = the accent strip; buffered = perforated. */
@@ -304,7 +313,7 @@
     background: #121315;
     box-shadow: inset 0 1px 2px #000, 0 1px 0 rgb(255 255 255 / 0.08);
   }
-  .pills i.on { background: linear-gradient(var(--accent), var(--accent-deep)); box-shadow: 0 0 4px rgb(139 149 255 / 0.4); }
+  .pills i.on { background: linear-gradient(var(--accent), var(--accent-deep)); box-shadow: 0 0 4px rgb(var(--accent-rgb) / 0.4); }
   .level input { position: absolute; inset: 0 0 0 40px; width: calc(100% - 40px); margin: 0; opacity: 0; cursor: pointer; }
 
   /* --- The sewn-in spec tag: the spec sheet and the controls, as a hang tag --- */
@@ -338,7 +347,7 @@
     height: 10px;
     translate: 0 -50%;
     border-radius: 50%;
-    background: var(--graphite-deep);
+    background: var(--obsidian);
     box-shadow: 0 0 0 2px var(--ti-dark), inset 0 1px 2px #000;
   }
   .tag dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; align-content: start; }
@@ -369,7 +378,6 @@
 
   @media (max-width: 760px) {
     main { width: calc(100% - 24px); margin-top: 18px; }
-    .model .code { display: none; }
     .housing { padding: 12px 12px 12px 12px; border-radius: 30px 12px 12px 30px / 30px 12px 12px 30px; }
     .gasket { padding: 6px; border-radius: 24px 8px 8px 24px / 24px 8px 8px 24px; }
     .screen { border-radius: 19px 4px 4px 19px / 19px 4px 4px 19px; }
@@ -393,7 +401,7 @@
   }
   @media (hover: hover) {
     .key:hover svg { fill: #FFFFFF; }
-    .pod:hover .face { box-shadow: inset 0 2px 3px rgb(255 255 255 / 0.14), inset 0 -4px 8px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(139 149 255 / 0.5); }
+    .pod:hover .face { box-shadow: inset 0 2px 3px rgb(255 255 255 / 0.14), inset 0 -4px 8px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(var(--accent-rgb) / 0.5); }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { transition-duration: 0.01ms !important; }
@@ -411,12 +419,12 @@
 <body>
 <main>
   <header class="model">
-    <div>
-      <div class="micro">discord-mcp / teaser / tx-01</div>
-      <h1>DISCORD MCP <span>TEASER</span></h1>
-      <p>One tool. Your code. The live Discord API.</p>
+    <div class="sysbar">
+      <span class="micro">System / TX-01 · discord-mcp</span>
+      <span class="status" id="status" role="status"><i aria-hidden="true"></i><span id="status-text">Ready</span></span>
     </div>
-    <div class="code micro">00:25 runtime<br>stereo · synthesised</div>
+    <h1>DISCORD MCP <span>TEASER</span></h1>
+    <p>One tool. Your code. The live Discord API.</p>
   </header>
 
   <section class="housing" aria-label="Teaser player">
@@ -437,7 +445,10 @@
       </div>
     </div>
 
-    <div class="seam" aria-hidden="true"></div>
+    <svg class="channel-groove" viewBox="0 0 1000 26" preserveAspectRatio="none" aria-hidden="true">
+      <path class="lip" d="M6 16 C 170 4, 330 26, 520 15 S 850 6, 994 14"/>
+      <path class="cut" d="M6 13 C 170 1, 330 23, 520 12 S 850 3, 994 11"/>
+    </svg>
 
     <div class="deck" role="group" aria-label="Player controls">
       <button class="key" id="toggle" type="button" aria-label="Play">
@@ -540,6 +551,8 @@
     $("toggle").setAttribute("aria-label", playing ? "Pause" : "Play");
     $("pod-icon").setAttribute("d", video.ended ? REPLAY : PLAY);
     $("pod").setAttribute("aria-label", video.ended ? "Play the teaser again" : "Play the teaser with sound");
+    $("status").classList.toggle("on", playing);
+    $("status-text").textContent = playing ? "Playing" : video.ended ? "Ended" : video.currentTime > 0 ? "Paused" : "Ready";
   };
   const playPause = () => {
     if (video.paused || video.ended) {
