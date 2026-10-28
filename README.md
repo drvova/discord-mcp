@@ -20,8 +20,8 @@ and keeps them across calls and restarts, instead of picking from a fixed menu o
 [Configuration](#configuration) ·
 [Security](#security)
 
-<img src="assets/img/trailer.svg" width="100%" alt="The 25-second discord-mcp teaser: a chrome bolt seats, two blades lock into the emblem, helpers stack, blast doors seal the token key, then the end card.">
-<sub>The 25-second teaser plays above, silent. With sound: <a href="assets/video/trailer.mp4">trailer.mp4</a> (6.6 MB download).</sub>
+<a href="https://drvova.github.io/discord-mcp/"><img src="assets/img/trailer.svg" width="100%" alt="The 25-second discord-mcp teaser, playing silently, with a chrome play button: click to watch it with sound."></a>
+<sub><a href="https://drvova.github.io/discord-mcp/">▶ Watch the teaser with sound</a></sub>
 
 </div>
 
@@ -367,7 +367,7 @@ The toolchain is [Rstack](https://rspack.rs): Rslib builds, Rstest tests, Rslint
 | `npm test` | Build, then run the Rstest suite (some tests spawn the built server) |
 | `npm run lint` · `npm run typecheck` · `npm run check` | Rslint: lint, type-check (TypeScript's native compiler), or both |
 
-The animated banner and the teaser trailer are authored with [Clayzo](https://www.npmjs.com/package/clayzo) in [`assets/banner`](assets/banner), its own small project; the trailer's soundtrack is synthesised by a Python script there.
+The animated banner and the teaser trailer are authored with [Clayzo](https://www.npmjs.com/package/clayzo) in [`assets/banner`](assets/banner), its own small project; the trailer's soundtrack is synthesised by a Python script there, and its player page lives in [`site`](site).
 
 The default branch is `new-architecture-main`.
 

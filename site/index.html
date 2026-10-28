@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>discord-mcp teaser</title>
+<meta name="description" content="The 25-second discord-mcp teaser: one tool runs your code against the live Discord API.">
+<meta property="og:title" content="discord-mcp teaser">
+<meta property="og:description" content="One tool. Your code. The live Discord API.">
+<meta property="og:image" content="poster.jpg">
+<meta name="theme-color" content="#050608">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Michroma&display=swap" rel="stylesheet">
+<style>
+  /* The player page for the README's trailer, in the banner's style: liquid
+     chrome, a steel bunker, one blurple accent. Assembled with the video by
+     .github/workflows/pages.yml. */
+  :root {
+    --black: #050608;
+    --steel-light: #2A2F39;
+    --steel: #1A1D24;
+    --steel-dark: #101217;
+    --groove: #3C4250;
+    --micro: #9AA3B5;
+    --accent: #5865F2;
+    --accent-light: #A9B1FF;
+    --chrome: linear-gradient(180deg, #FFFFFF 0%, #E4E9F1 18%, #8C95A6 44%, #14171D 50%, #3B4250 56%, #B8C1CF 80%, #F4F7FB 100%);
+    --blurple-chrome: linear-gradient(180deg, #FFFFFF 0%, #D8DCFF 18%, #7C86F7 44%, #14163A 50%, #3A43B8 56%, #A9B1FF 80%, #EEF0FF 100%);
+    --cut: 22px;
+    --label: "Michroma", "Eurostile", ui-sans-serif, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--black); }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    color: #E4E9F1;
+    font-family: var(--label);
+    /* Steel plate with a faint galvanised sheen. */
+    background:
+      repeating-linear-gradient(105deg, transparent 0 220px, rgba(255, 255, 255, 0.018) 220px 380px, transparent 380px 640px),
+      linear-gradient(180deg, var(--steel-light), var(--steel) 35%, var(--steel-dark));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  /* Riveted bands across the top and bottom, with grooved seams. */
+  .band {
+    width: 100%;
+    height: 46px;
+    flex: none;
+    background:
+      radial-gradient(circle at 46% 40%, #5B6373 0 1.5px, #262A33 3.5px, var(--black) 6px, transparent 7px) 0 50% / 80px 46px repeat-x,
+      linear-gradient(180deg, var(--steel-light), var(--steel));
+  }
+  .band.top { border-bottom: 4px solid var(--black); box-shadow: 0 2.5px 0 var(--groove); }
+  .band.bottom { border-top: 4px solid var(--black); box-shadow: inset 0 2.5px 0 var(--groove); margin-top: auto; }
+  /* Sized so the whole player (header, video, controls) fits the screen. */
+  main {
+    width: min(1280px, 100% - 32px, max(560px, (100vh - 430px) * 16 / 9));
+    margin: 24px auto 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  header img { width: min(560px, 100%); display: block; margin: 0 auto; }
+
+  /* The frame: a chamfered chrome bezel around the video. */
+  .bezel {
+    padding: 5px;
+    background: var(--chrome);
+    clip-path: polygon(var(--cut) 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, var(--cut) 100%, 0 calc(100% - var(--cut)), 0 var(--cut));
+    filter: drop-shadow(8px 10px 0 rgba(0, 0, 0, 0.6));
+  }
+  .screen {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    background: var(--black);
+    clip-path: polygon(calc(var(--cut) - 3px) 0, calc(100% - var(--cut) + 3px) 0, 100% calc(var(--cut) - 3px), 100% calc(100% - var(--cut) + 3px), calc(100% - var(--cut) + 3px) 100%, calc(var(--cut) - 3px) 100%, 0 calc(100% - var(--cut) + 3px), 0 calc(var(--cut) - 3px));
+    cursor: pointer;
+  }
+  video { width: 100%; height: 100%; display: block; object-fit: cover; }
+
+  /* The big play badge: a chrome ring, a dark face, a blurple chrome arrow. */
+  .badge {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: clamp(88px, 13vw, 168px);
+    aspect-ratio: 1;
+    border: 0;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--chrome);
+    box-shadow: 0 0 0 3px var(--black), 8px 12px 18px rgba(0, 0, 0, 0.7);
+    cursor: pointer;
+    transition: transform 160ms cubic-bezier(0.7, 0, 0.2, 1), opacity 200ms;
+  }
+  .badge::before {
+    content: "";
+    position: absolute;
+    inset: 9%;
+    border-radius: 50%;
+    background: linear-gradient(180deg, #1C2027, var(--black));
+    box-shadow: 0 0 0 3px var(--black);
+  }
+  .badge::after {
+    content: "";
+    position: absolute;
+    inset: 30% 26% 30% 36%;
+    background: var(--blurple-chrome);
+    clip-path: polygon(0 0, 100% 50%, 0 100%);
+  }
+  .badge.replay::after {
+    inset: 30%;
+    clip-path: polygon(50% 0, 50% 18%, 18% 18%, 18% 82%, 82% 82%, 82% 50%, 100% 50%, 100% 100%, 0 100%, 0 0);
+  }
+  .badge .ring {
+    position: absolute;
+    inset: -3px;
+    border-radius: 50%;
+    border: 4px solid var(--accent-light);
+    animation: pulse 2.5s cubic-bezier(0.6, 0, 0.15, 1) infinite;
+    pointer-events: none;
+  }
+  @keyframes pulse { from { transform: scale(1); opacity: 0.7; } 66%, to { transform: scale(1.45); opacity: 0; } }
+  .badge:hover, .badge:focus-visible { transform: scale(1.06); }
+  .badge:focus-visible { outline: 3px solid var(--accent-light); outline-offset: 6px; }
+  .hint {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(50% + clamp(56px, 8vw, 104px));
+    text-align: center;
+    font-size: clamp(10px, 1.1vw, 14px);
+    letter-spacing: 0.3em;
+    color: rgba(255, 255, 255, 0.85);
+    text-shadow: 0 2px 0 var(--black);
+    pointer-events: none;
+    transition: opacity 200ms;
+  }
+  .playing .badge, .playing .hint { opacity: 0; pointer-events: none; }
+  .playing .badge { transform: scale(0.9); }
+
+  /* The control bar: a machined steel strip with chrome hardware. */
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 18px;
+    background: linear-gradient(180deg, #6A7384, #1C2027 50%, #4A5262);
+    clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 14px, 100% calc(100% - 14px), calc(100% - 14px) 100%, 14px 100%, 0 calc(100% - 14px), 0 14px);
+  }
+  .controls button {
+    flex: none;
+    width: 44px;
+    height: 44px;
+    border: 0;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--chrome);
+    box-shadow: 0 0 0 2px var(--black);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+  }
+  .controls button svg { width: 34px; height: 34px; border-radius: 50%; background: linear-gradient(180deg, #1C2027, var(--black)); padding: 9px; fill: var(--accent-light); }
+  .controls button:focus-visible { outline: 3px solid var(--accent-light); outline-offset: 3px; }
+  .controls button:hover svg { fill: #FFFFFF; }
+  /* The scrubber: a dark groove, a blurple fill, a chrome hex for the thumb. */
+  .scrub { flex: 1; position: relative; height: 44px; display: flex; align-items: center; }
+  .scrub input { position: absolute; inset: 0; width: 100%; margin: 0; opacity: 0; cursor: pointer; }
+  .groove { position: relative; width: 100%; height: 10px; background: var(--black); box-shadow: inset 0 2px 0 #000, 0 1.5px 0 var(--groove); }
+  .fill { position: absolute; inset: 0 auto 0 0; width: 0; background: linear-gradient(180deg, var(--accent-light), var(--accent) 60%, #3A43B8); }
+  .thumb {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 26px;
+    height: 26px;
+    translate: -50% -50%;
+    background: var(--chrome);
+    clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0 50%);
+  }
+  .scrub:focus-within .groove { outline: 2px solid var(--accent-light); outline-offset: 6px; }
+  .time { flex: none; font-size: 13px; letter-spacing: 0.18em; color: var(--micro); text-shadow: 0 1px 0 var(--black); font-variant-numeric: tabular-nums; min-width: 12ch; text-align: center; }
+
+  footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; font-size: 12px; letter-spacing: 0.24em; }
+  footer a { color: var(--accent-light); text-decoration: none; }
+  footer a:hover, footer a:focus-visible { color: #FFFFFF; text-decoration: underline; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+  @media (max-width: 600px) {
+    .controls { gap: 10px; padding: 10px 12px; }
+    .time { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .badge .ring { animation: none; opacity: 0; }
+    .badge { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="band top" aria-hidden="true"></div>
+<main>
+  <header><img src="banner.svg" alt="discord-mcp. One tool runs your code; tokens stay in the agent."></header>
+
+  <section class="bezel" aria-label="discord-mcp teaser player">
+    <div class="screen" id="screen">
+      <video id="video" preload="metadata" poster="poster.jpg" playsinline aria-label="The 25-second discord-mcp teaser">
+        <source src="trailer.webm" type="video/webm">
+        <source src="trailer.mp4" type="video/mp4">
+      </video>
+      <button class="badge" id="badge" type="button" aria-label="Play the teaser with sound"><span class="ring" aria-hidden="true"></span></button>
+      <div class="hint" id="hint" aria-hidden="true">PLAY WITH SOUND</div>
+    </div>
+  </section>
+
+  <div class="controls" role="group" aria-label="Player controls">
+    <button id="toggle" type="button" aria-label="Play">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path id="toggle-icon" d="M4 2l10 6-10 6z"/></svg>
+    </button>
+    <div class="scrub">
+      <div class="groove" aria-hidden="true"><div class="fill" id="fill"></div><div class="thumb" id="thumb"></div></div>
+      <label class="sr" for="seek">Seek</label>
+      <input id="seek" type="range" min="0" max="25" step="0.01" value="0">
+    </div>
+    <div class="time" id="time" aria-live="off">00:00 / 00:25</div>
+    <button id="mute" type="button" aria-label="Mute">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path id="mute-icon" d="M2 6h3l4-3v10l-4-3H2zM10.5 5l1-1a5.5 5.5 0 010 8l-1-1a4 4 0 000-6z"/></svg>
+    </button>
+    <button id="full" type="button" aria-label="Full screen">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h5v2H4v3H2zM9 2h5v5h-2V4H9zM2 9h2v3h3v2H2zM12 9h2v5H9v-2h3z"/></svg>
+    </button>
+  </div>
+
+  <footer>
+    <a href="https://github.com/drvova/discord-mcp">&larr; BACK TO THE REPO</a>
+    <span><a href="trailer.mp4" download>DOWNLOAD MP4</a></span>
+  </footer>
+</main>
+<div class="band bottom" aria-hidden="true"></div>
+
+<script>
+  const video = document.getElementById("video");
+  const screen = document.getElementById("screen");
+  const badge = document.getElementById("badge");
+  const toggle = document.getElementById("toggle");
+  const toggleIcon = document.getElementById("toggle-icon");
+  const mute = document.getElementById("mute");
+  const muteIcon = document.getElementById("mute-icon");
+  const full = document.getElementById("full");
+  const seek = document.getElementById("seek");
+  const fill = document.getElementById("fill");
+  const thumb = document.getElementById("thumb");
+  const time = document.getElementById("time");
+
+  const PLAY = "M4 2l10 6-10 6z";
+  const PAUSE = "M3 2h4v12H3zM9 2h4v12H9z";
+  const SOUND = "M2 6h3l4-3v10l-4-3H2zM10.5 5l1-1a5.5 5.5 0 010 8l-1-1a4 4 0 000-6z";
+  const MUTED = "M2 6h3l4-3v10l-4-3H2zM10 6l1-1 1.5 1.5L14 5l1 1-1.5 1.5L15 9l-1 1-1.5-1.5L11 10l-1-1 1.5-1.5z";
+
+  const clock = (s) => {
+    const whole = Math.max(0, Math.floor(s || 0));
+    return `${String(Math.floor(whole / 60)).padStart(2, "0")}:${String(whole % 60).padStart(2, "0")}`;
+  };
+  const render = () => {
+    const duration = video.duration || 25;
+    const at = video.currentTime;
+    const pct = `${(at / duration) * 100}%`;
+    fill.style.width = pct;
+    thumb.style.left = pct;
+    seek.max = String(duration);
+    seek.value = String(at);
+    seek.setAttribute("aria-valuetext", `${clock(at)} of ${clock(duration)}`);
+    time.textContent = `${clock(at)} / ${clock(duration)}`;
+  };
+  const sync = () => {
+    const playing = !video.paused && !video.ended;
+    screen.classList.toggle("playing", playing);
+    toggleIcon.setAttribute("d", playing ? PAUSE : PLAY);
+    toggle.setAttribute("aria-label", playing ? "Pause" : "Play");
+    badge.classList.toggle("replay", video.ended);
+    badge.setAttribute("aria-label", video.ended ? "Play the teaser again" : "Play the teaser with sound");
+  };
+  const playPause = () => {
+    if (video.paused || video.ended) {
+      video.muted = false;
+      video.play();
+    } else {
+      video.pause();
+    }
+  };
+
+  badge.addEventListener("click", (event) => { event.stopPropagation(); playPause(); });
+  screen.addEventListener("click", playPause);
+  toggle.addEventListener("click", playPause);
+  mute.addEventListener("click", () => { video.muted = !video.muted; });
+  full.addEventListener("click", () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      (screen.requestFullscreen ? screen : video).requestFullscreen?.();
+    }
+  });
+  seek.addEventListener("input", () => { video.currentTime = Number(seek.value); render(); });
+  video.addEventListener("volumechange", () => {
+    muteIcon.setAttribute("d", video.muted ? MUTED : SOUND);
+    mute.setAttribute("aria-label", video.muted ? "Unmute" : "Mute");
+  });
+  for (const type of ["play", "pause", "ended"]) {
+    video.addEventListener(type, sync);
+  }
+  for (const type of ["timeupdate", "loadedmetadata", "seeked"]) {
+    video.addEventListener(type, render);
+  }
+  document.addEventListener("keydown", (event) => {
+    if (event.target instanceof HTMLInputElement && event.key !== " " && event.key !== "k") {
+      return;
+    }
+    const key = event.key.toLowerCase();
+    if (key === " " || key === "k") {
+      if (event.target instanceof HTMLButtonElement && key === " ") {
+        return;
+      }
+      event.preventDefault();
+      playPause();
+    } else if (key === "m") {
+      video.muted = !video.muted;
+    } else if (key === "f") {
+      full.click();
+    } else if (key === "arrowright" || key === "arrowleft") {
+      video.currentTime = Math.min(video.duration || 25, Math.max(0, video.currentTime + (key === "arrowright" ? 5 : -5)));
+    } else if (key === "home") {
+      video.currentTime = 0;
+    }
+  });
+  render();
+  sync();
+</script>
+</body>
+</html>

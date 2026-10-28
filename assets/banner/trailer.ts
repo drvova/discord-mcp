@@ -1,8 +1,9 @@
 // A 25-second teaser trailer in the banner's style, authored with Clayzo.
 //
 //   node trailer.ts                     writes trailer.json and validates it
-//   npx clayzo export trailer.json ../img/trailer.svg --format svg
-//                                       the silent version the README plays inline
+//   node trailer.ts --preview && npx clayzo export trailer-preview.json ../img/trailer.svg --format svg
+//                                       the silent, looping preview the README shows, with a play
+//                                       badge that links to the player page (site/)
 //   npx clayzo export trailer.json trailer.mp4 --format mp4
 //   python3 trailer-audio.py            synthesises the soundtrack (trailer.wav)
 //   ffmpeg -i trailer.mp4 -i trailer.wav -map 0:v -map 1:a -c:v copy -c:a aac -shortest ../video/trailer.mp4
@@ -450,6 +451,42 @@ scene.add({
     style: { fill: fill(BLACK) },
 });
 
+// --- The README preview: the trailer with a chrome play badge on top ---
+
+// `node trailer.ts --preview` adds the badge and writes trailer-preview.json,
+// exported as the silent, looping SVG the README shows; the badge links to
+// the player page, which plays the MP4 with sound.
+const PREVIEW = process.argv.includes("--preview");
+if (PREVIEW) {
+    const badge = { x: 1736, y: 896 };
+    const R = 92;
+    // A ring of light that pulses out from the badge every 2.5 s.
+    const pulseKeys: Array<Key<Vec3>> = [];
+    const fadeKeys: Array<Key<number>> = [];
+    for (let tick = 0; tick < END; tick += 75) {
+        pulseKeys.push([tick, v3(1), SLOW], [tick + 50, v3(1.45)], [tick + 74, v3(1.45)]);
+        fadeKeys.push([tick, 0.7, SLOW], [tick + 50, 0], [tick + 74, 0]);
+    }
+    scene.add({ ...base("play.pulse", { outTick: END, x: badge.x, y: badge.y, scale: keyed<Vec3>("play.pulse.scale", pulseKeys), opacity: keyed("play.pulse.opacity", fadeKeys) }), type: "ellipse", size: constant({ width: R * 2, height: R * 2 }), style: { stroke: stroke(ACCENT_LIGHT, 4) } });
+    scene.add({ ...base("play.shadow", { outTick: END, x: badge.x + 8, y: badge.y + 12 }), type: "ellipse", size: constant({ width: R * 2 + 10, height: R * 2 + 10 }), style: { gradientFill: radial([[0, hex("#000000CC")], [0.75, hex("#00000088")], [1, hex("#00000000")]], R + 5) } });
+    scene.add({ ...base("play.ring", { outTick: END, x: badge.x, y: badge.y }), type: "ellipse", size: constant({ width: R * 2, height: R * 2 }), style: { gradientFill: chrome(CHROME, -R, R), stroke: stroke(BLACK, 3) } });
+    scene.add({ ...base("play.face", { outTick: END, x: badge.x, y: badge.y }), type: "ellipse", size: constant({ width: R * 2 - 30, height: R * 2 - 30 }), style: { gradientFill: linear([[0, hex("#1C2027")], [1, BLACK]], { x: 0, y: -R }, { x: 0, y: R }), stroke: stroke(BLACK, 3) } });
+    scene.add({
+        ...base("play.arrow", { outTick: END, x: badge.x + 8, y: badge.y }),
+        type: "polystar",
+        variant: "polygon",
+        points: constant(3),
+        innerRadius: constant(0),
+        outerRadius: constant(R * 0.48),
+        innerRoundness: constant(0),
+        outerRoundness: constant(0),
+        rotationOffset: constant(90),
+        style: { gradientFill: chrome(BLURPLE_CHROME, -R * 0.48, R * 0.48) },
+    });
+    const label = cellWordmark("PLAY WITH SOUND", { cell: 5, gap: 1, face: "3x5" });
+    scene.add({ ...base("play.label", { outTick: END, x: badge.x - R - 28 - label.width / 2, y: badge.y }), type: "path", path: constant(label.path), style: { fill: fill(WHITE, 0.85) } });
+}
+
 const document = withComputedRevision({
     version: ANIMATION_DOCUMENT_VERSION,
     id: "discord-mcp-trailer",
@@ -490,5 +527,6 @@ try {
     console.error(JSON.stringify((error as { diagnostics?: unknown }).diagnostics ?? String(error), null, 2).slice(0, 4000));
     process.exit(1);
 }
-writeFileSync(new URL("./trailer.json", import.meta.url), `${JSON.stringify(document)}\n`);
-console.log(`trailer.json: ${Object.keys(scene.nodes).length} nodes, ${END} ticks at ${FPS} fps, revision ${document.revision}`);
+const out = PREVIEW ? "trailer-preview.json" : "trailer.json";
+writeFileSync(new URL(`./${out}`, import.meta.url), `${JSON.stringify(document)}\n`);
+console.log(`${out}: ${Object.keys(scene.nodes).length} nodes, ${END} ticks at ${FPS} fps, revision ${document.revision}`);
