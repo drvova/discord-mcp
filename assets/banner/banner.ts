@@ -16,8 +16,15 @@
 // - machined surfaces: a chamfered plate with a bevel and an engraved line,
 //   and a chrome wordmark with a dark horizon band under its highlight;
 // - restraint: matte black and titanium, with one small accent.
+// - a spine of armour plates screwed along the main blade, after the era's
+//   plate-on-strap watch bands, with light between the plates.
 // Callouts wrap the function in the art: each points at a part and names
 // what the project does.
+//
+// Motion, after the era's product reveals: long eased sweeps cut with sharp
+// snaps. A pulse runs down the spine, sheens travel along the blades, a
+// specular flash crosses the wordmark letter by letter, a scan line crosses
+// the plate, and the bolts turn one hex step per loop.
 //
 // Only geometry, no font text, so the animated SVG export draws it exactly.
 // The blades and rivets are always there; edges, veins, wordmark and callouts
@@ -168,7 +175,7 @@ function blade(id: string, samples: Sample[], rootWidth: number, start: number, 
             style: { gradientFill: linear([[0, WHITE], [0.5, hex("#7C8597")], [1, hex("#E9EDF4")]], { x: 0, y: -radius }, { x: 0, y: radius }), stroke: stroke(SHADOW, 1) },
         });
     }
-    return { width, upper: offsetAlong(samples, width, -1) };
+    return { width, upper: offsetAlong(samples, width, -1), outline: [...offsetAlong(samples, width, -1), ...offsetAlong(samples, width, 1).reverse()] };
 }
 
 // --- The surface ---
@@ -224,6 +231,39 @@ add({
     style: { stroke: stroke(WHITE, 0.6, { opacity: 0.03 }) },
 });
 
+// A scan line crosses the plate once a loop, from off one edge to off the
+// other, inside a clip to the plate's outline.
+const addHidden = (node: SceneNode) => {
+    nodes[node.id] = node;
+};
+addHidden({
+    ...base("scan.clip", { outTick: END, x: 0, y: 0 }),
+    type: "path",
+    path: constant<PathData>({ contours: [{ closed: true, vertices: plate.map(vertex) }] }),
+    style: {},
+});
+const scanX = keyed<Vec3>("scan.position", [[0, { x: -200, y: HEIGHT / 2, z: 0 }, "linear"], [END, { x: WIDTH + 40, y: HEIGHT / 2, z: 0 }]]);
+addHidden({
+    ...base("scan.trail", { outTick: END, position: scanX }),
+    type: "rect",
+    size: constant({ width: 160, height: HEIGHT }),
+    cornerRadius: constant(0),
+    style: { gradientFill: linear([[0, hex("#A9B1FF00")], [1, hex("#A9B1FF0A")]], { x: -80, y: 0 }, { x: 80, y: 0 }) },
+});
+addHidden({
+    ...base("scan.line", { outTick: END, position: scanX, anchor: { x: -80, y: 0 } }),
+    type: "rect",
+    size: constant({ width: 1.5, height: HEIGHT }),
+    cornerRadius: constant(0),
+    style: { fill: fill(ACCENT_LIGHT, 0.14) },
+});
+add({
+    ...base("scan", { outTick: END, x: 0, y: 0 }),
+    type: "group",
+    children: ["scan.trail", "scan.line"],
+    clipPathId: "scan.clip",
+});
+
 // Blade A sweeps along the bottom and curls up at the right; blade B hangs
 // from the top right and tucks in. Offset, never mirrored.
 const sweepA = spiral(-4, 366, 3, 1094, -55);
@@ -231,8 +271,102 @@ const sweepA = spiral(-4, 366, 3, 1094, -55);
 const fullB = spiral(1284, 30, 182, 562, -95, 562);
 const landing = fullB.findIndex(({ point }) => sweepA.some((a) => Math.hypot(a.point.x - point.x, a.point.y - point.y) < 4) && point.y > 150);
 const sweepB = fullB.slice(0, landing + 1).filter((_, i, all) => i % 5 === 0 || i === all.length - 1).map((sample, i, all) => ({ ...sample, s: i / (all.length - 1) }));
-const bladeA = blade("blade-a", sweepA, 46, 4, [0.22, 0.5, 0.74]);
-blade("blade-b", sweepB, 30, 22, [0.3, 0.62]);
+const bladeA = blade("blade-a", sweepA, 46, 4, [0.74]);
+const bladeB = blade("blade-b", sweepB, 30, 22, [0.3, 0.62]);
+
+// The spine: armour plates screwed along blade A, like the era's
+// plate-on-strap watch bands, with blurple light between them. A pulse runs
+// root to tip twice a loop, the request travelling down the line.
+const SNAP = { x1: 0.7, y1: 0, x2: 0.2, y2: 1 };
+const PLATES = 11;
+const SPINE_FROM = 0.04;
+const SPINE_TO = 0.62;
+const at = (s: number) => Math.round(s * (sweepA.length - 1));
+const band = (from: number, to: number, scale: number) => {
+    const part = sweepA.slice(at(from), at(to) + 1);
+    return [...offsetAlong(part, (s) => bladeA.width(s) * scale, -1), ...offsetAlong(part, (s) => bladeA.width(s) * scale, 1).reverse()];
+};
+const PULSES = [40, 150];
+const pitch = (SPINE_TO - SPINE_FROM) / PLATES;
+for (let k = 0; k < PLATES; k += 1) {
+    const from = SPINE_FROM + k * pitch;
+    const to = from + pitch * 0.76;
+    if (k > 0) {
+        const keys: Array<[number, number] | [number, number, typeof OUT]> = [[0, 0.2]];
+        for (const pulse of PULSES) {
+            const peak = pulse + k * 5;
+            keys.push([peak - 4, 0.2, SNAP], [peak, 1, OUT], [peak + 18, 0.2]);
+        }
+        keys.push([END, 0.2]);
+        add({
+            ...base(`spine.${k}.light`, { outTick: END, x: 0, y: 0, opacity: keyed(`spine.${k}.light.opacity`, keys) }),
+            type: "path",
+            path: constant<PathData>({ contours: [{ closed: true, vertices: band(from - pitch * 0.28, from + pitch * 0.04, 0.5).map(vertex) }] }),
+            style: { fill: fill(ACCENT_LIGHT) },
+        });
+    }
+    const outline = band(from, to, 0.62);
+    const mid = sweepA[at((from + to) / 2)];
+    const w = bladeA.width(mid.s) * 0.62;
+    add({
+        ...base(`spine.${k}`, { outTick: END, x: 0, y: 0 }),
+        type: "path",
+        path: constant<PathData>({ contours: [{ closed: true, vertices: outline.map(vertex) }] }),
+        // Bead-blasted plate with a polished upper edge.
+        style: {
+            gradientFill: linear([[0, hex("#D5DAE1")], [0.2, hex("#7A808C")], [1, hex("#20232A")]],
+                { x: mid.point.x - mid.normal.x * w, y: mid.point.y - mid.normal.y * w },
+                { x: mid.point.x + mid.normal.x * w, y: mid.point.y + mid.normal.y * w }),
+            stroke: stroke(SHADOW, 1),
+        },
+    });
+    add({
+        ...base(`spine.${k}.screw`, { outTick: END, x: mid.point.x, y: mid.point.y }),
+        type: "polystar",
+        variant: "polygon",
+        points: constant(6),
+        innerRadius: constant(0),
+        outerRadius: constant(Math.max(2, w * 0.28)),
+        innerRoundness: constant(0),
+        outerRoundness: constant(0),
+        rotationOffset: constant(0),
+        style: { fill: fill(SHADOW), stroke: stroke(hex("#7C8597"), 0.8) },
+    });
+}
+
+// Specular sheens: a soft band of light travels the length of each blade,
+// starting and ending past its ends, so nothing shows at the loop point.
+const sheen = (id: string, outline: Point[], samples: Sample[], starts: number[]) => {
+    const first = samples[0].point;
+    const last = samples[samples.length - 1].point;
+    const along = (u: number) => ({ x: first.x + (last.x - first.x) * u, y: first.y + (last.y - first.y) * u });
+    const startKeys: Array<[number, Point] | [number, Point, typeof IN_OUT]> = [[0, along(-0.4)]];
+    const endKeys: Array<[number, Point] | [number, Point, typeof IN_OUT]> = [[0, along(-0.1)]];
+    for (const start of starts) {
+        startKeys.push([start, along(-0.4), IN_OUT], [start + 40, along(1.1)], [start + 41, along(-0.4)]);
+        endKeys.push([start, along(-0.1), IN_OUT], [start + 40, along(1.4)], [start + 41, along(-0.1)]);
+    }
+    add({
+        ...base(id, { outTick: END, x: 0, y: 0 }),
+        type: "path",
+        path: constant<PathData>({ contours: [{ closed: true, vertices: outline.map(vertex) }] }),
+        style: {
+            gradientFill: {
+                kind: "linear",
+                stops: constant([
+                    { position: 0, color: hex("#FFFFFF00") },
+                    { position: 0.5, color: hex("#FFFFFFB8") },
+                    { position: 1, color: hex("#FFFFFF00") },
+                ]),
+                start: keyed(`${id}.from`, startKeys),
+                end: keyed(`${id}.to`, endKeys),
+                opacity: constant(1),
+            },
+        },
+    });
+};
+sheen("blade-a.sheen", bladeA.outline, sweepA, [96, 196]);
+sheen("blade-b.sheen", bladeB.outline, sweepB, [108, 186]);
 const tipB = sweepB[sweepB.length - 1].point;
 
 // Exposed hardware: machined hex bolts that turn one hex step (60°) per loop,
@@ -315,6 +449,19 @@ word.letters.forEach((letter, index) => {
         // Restraint: the accent is only the specular line on "MCP".
         ["highlight", isMcp ? ACCENT_LIGHT : WHITE, word.stroke * 0.3, -word.stroke * 0.2],
     ];
+    // A specular flash that crosses the word, letter by letter, twice a loop.
+    const flashKeys: Array<[number, number] | [number, number, typeof OUT]> = [[0, 0]];
+    for (const pass of [120, 176]) {
+        const peak = pass + index * 2;
+        flashKeys.push([peak - 3, 0, SNAP], [peak, 0.9, OUT], [peak + 12, 0]);
+    }
+    flashKeys.push([END, 0]);
+    add({
+        ...base(`word.${index}.halo`, { outTick: END, x: WORD_X, y: WORD_Y, skew: constant({ x: -10, y: 0 }), scale: { x: 1.1, y: 1 }, opacity: keyed(`word.${index}.halo.opacity`, flashKeys.map(([tick, level, ease]) => (ease ? [tick, level * 0.3, ease] : [tick, level * 0.3]))) }),
+        type: "path",
+        path,
+        style: { stroke: stroke(ACCENT_LIGHT, word.stroke + 14) },
+    });
     for (const [layer, color, width, offset] of layers) {
         const id = `word.${index}.${layer}`;
         add({
@@ -325,6 +472,12 @@ word.letters.forEach((letter, index) => {
             operators: [trim(`${id}.trim`, { end: keyed(`${id}.end`, [[start, 0, OUT], [start + 24, 1]]) })],
         });
     }
+    add({
+        ...base(`word.${index}.flash`, { outTick: END, x: WORD_X, y: WORD_Y - word.stroke * 0.1, skew: constant({ x: -10, y: 0 }), scale: { x: 1.1, y: 1 }, opacity: keyed(`word.${index}.flash.opacity`, flashKeys) }),
+        type: "path",
+        path,
+        style: { stroke: stroke(WHITE, word.stroke * 0.7) },
+    });
 });
 
 // --- Callouts: each points at a part and names what the project does ---
@@ -355,11 +508,7 @@ const callout = (id: string, points: Point[], start: number, text: string, align
     const tip = points[points.length - 1];
     microtype(`${id}.label`, text, align === "left" ? tip.x + 8 : tip.x - 8, tip.y, align, color, fading(`${id}.label.opacity`, start + 12, 0.85), start + 12);
 };
-const rivet = (bladeId: string, index: number) => {
-    const node = nodes[`${bladeId}.rivet-${index}`];
-    return (node.transform.position as { value: Vec3 }).value;
-};
-const r0 = rivet("blade-a", 0);
+const r0 = (nodes["spine.3.screw"].transform.position as { value: Vec3 }).value;
 callout("callout.tool", [{ x: 214, y: 112 }, { x: 214, y: 56 }, { x: 240, y: 56 }], 74, "ONE TOOL. RUNS YOUR CODE.", "left", TITANIUM);
 callout("callout.agent", [{ x: r0.x, y: r0.y }, { x: r0.x + 40, y: r0.y - 52 }, { x: r0.x + 72, y: r0.y - 52 }], 92, "TOKENS STAY IN THE AGENT.", "left", ACCENT_LIGHT);
 callout("callout.kept", [{ x: hinge.x, y: hinge.y }, { x: hinge.x + 40, y: hinge.y + 40 }, { x: hinge.x + 72, y: hinge.y + 40 }], 110, "HELPERS KEPT ACROSS RESTARTS.", "left", TITANIUM);
