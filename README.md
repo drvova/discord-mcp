@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/img/banner.svg" width="100%" alt="discord-mcp. One tool runs your code, tokens stay in the agent, helpers are kept across restarts.">
+<img src="assets/img/banner.svg" width="100%" alt="discord-mcp. One tool runs your code; tokens stay in the agent.">
 
 ### Discord for language models, through one tool that runs code
 
@@ -19,6 +19,9 @@ and keeps them across calls and restarts, instead of picking from a fixed menu o
 [Other MCP servers](#other-mcp-servers-as-functions) ·
 [Configuration](#configuration) ·
 [Security](#security)
+
+<a href="assets/video/trailer.mp4"><img src="assets/img/trailer-poster.jpg" width="480" alt="Play the 25-second discord-mcp teaser trailer"></a><br>
+<sub><a href="assets/video/trailer.mp4">▶ Watch the 25-second teaser</a> (with sound)</sub>
 
 </div>
 
@@ -364,7 +367,7 @@ The toolchain is [Rstack](https://rspack.rs): Rslib builds, Rstest tests, Rslint
 | `npm test` | Build, then run the Rstest suite (some tests spawn the built server) |
 | `npm run lint` · `npm run typecheck` · `npm run check` | Rslint: lint, type-check (TypeScript's native compiler), or both |
 
-The animated banner at the top is authored with [Clayzo](https://www.npmjs.com/package/clayzo) in [`assets/banner`](assets/banner), its own small project.
+The animated banner and the teaser trailer are authored with [Clayzo](https://www.npmjs.com/package/clayzo) in [`assets/banner`](assets/banner), its own small project; the trailer's soundtrack is synthesised by a Python script there.
 
 The default branch is `new-architecture-main`.
 
