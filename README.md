@@ -1,58 +1,235 @@
-# Discord MCP Server
+<div align="center">
 
-> **⚠️ Security Notice**: The single tool this server exposes **runs arbitrary JavaScript with the server's full authority** — every Discord token it holds, the network, the filesystem and the process. That is the design, not a mode: there is no switch that turns it off. **Run the server sandboxed** (a container, VM or jail with only the access you intend to grant). Keep Discord tokens out of it with `discord-mcp agent` (ssh-agent style, see "Secrets: the SSH model"): then the code can use Discord but cannot read a token. Without the agent, treat the server's tokens as exposed to whatever drives the tool.
+<img src="assets/img/banner.svg" width="100%" alt="discord-mcp. One tool runs your code, tokens stay in the agent, helpers are kept across restarts.">
 
-Discord MCP Server exposes Discord to a model through **one tool that runs code**. The model discovers the live discord.js API, writes its own helpers, and reuses and refines them across calls and restarts — instead of choosing from a fixed menu of verbs.
+### Discord for language models, through one tool that runs code
+
+The model discovers the live discord.js API, writes its own helpers,<br>
+and keeps them across calls and restarts, instead of picking from a fixed menu of verbs.
+
+[![Node](https://img.shields.io/badge/node-%E2%89%A522.15-5865F2?logo=node.js&logoColor=white)](#quick-start)
+[![MCP](https://img.shields.io/badge/MCP-1%20tool-5865F2)](#the-run-tool)
+[![discord.js](https://img.shields.io/badge/discord.js-14-5865F2?logo=discord&logoColor=white)](https://discord.js.org)
+[![Toolchain](https://img.shields.io/badge/toolchain-Rstack-5865F2)](#development)
+[![License](https://img.shields.io/badge/license-MIT-5865F2)](LICENSE)
+
+[Quick start](#quick-start) ·
+[The run tool](#the-run-tool) ·
+[Secrets](#secrets-the-ssh-model) ·
+[Other MCP servers](#other-mcp-servers-as-functions) ·
+[Configuration](#configuration) ·
+[Security](#security)
+
+</div>
+
+> [!WARNING]
+> **The one tool this server exposes runs JavaScript with the server's full authority**: the network, the filesystem, the process. That is the design, not a mode, and there is no switch to turn it off. **Run the server sandboxed** (a container, VM or jail with only the access you intend to grant), and keep Discord tokens out of it with [`discord-mcp agent`](#secrets-the-ssh-model): then the code can *use* Discord but can never *read* a token.
 
 ## Why one code tool
 
-A fixed catalog of typed tools is the wrong interface: every bot, permission set and library version supports a different subset of Discord, and different models have different strengths with different tools. So the server does not hand-pick verbs. It exposes `run`, gives the code a live API, and lets each deployment's model accrete the tooling it needs.
-
-## The `run` tool
-
-`run` is the only advertised tool. Arguments:
-
-- `code` (string, required) — JavaScript to run. An empty string returns the manual.
-- `identity` (string, optional) — identity id to bind as `client` before the code runs (for example `default-bot`).
-- `vars` (object of strings, optional) — named strings available as `vars.<name>`; use them for long text or payloads instead of escaping them in `code`.
-
-The code runs in **one long-lived namespace**. Top-level `await` works; the result is whatever the code printed plus the value of its last expression.
+A fixed catalog of typed tools is the wrong interface for Discord. Every bot, permission set and library version supports a different slice of the API, and different models are good with different tools. So this server doesn't hand-pick verbs. It exposes a single tool, `run`, gives the code a live discord.js client, and lets each deployment's model build the tooling it needs.
 
 ```js
-// call 1 — build a helper
+// call 1: the model writes a helper...
 async function channelByName(guildId, name) {
   const guild = await client.guilds.fetch(guildId);
   return (await guild.channels.fetch()).find((c) => c.name === name);
 }
 
-// call 2 — use it (vars.body was passed in the tool's `vars` argument)
-const ch = await channelByName("123456789012345678", "general");
-await ch.send(vars.body);
+// call 2 (or next week, after a restart): ...and reuses it
+const general = await channelByName("123456789012345678", "general");
+await general.send(vars.announcement);
 ```
 
-### What the namespace provides
+**Highlights**
+
+- **One tool, the whole API.** `client` is a real discord.js `Client`. `describe(x)` shows live state and every method's signature and doc, so the model can find its way.
+- **It remembers.** Functions, classes and constants the model defines are saved and reloaded on restart. Side effects never are.
+- **Tokens stay out of reach.** An ssh-agent-style agent holds the tokens, so the server and the model only ever see `agent:<id>`.
+- **Other MCP servers become functions.** `mcp.github.get_issue(...)` inside the same code, not a growing list of tools.
+- **Hardened networking.** Optional proxy for all Discord traffic, https-only upstreams with `known_hosts` pinning, per-identity latency, and tokens kept out of logs and traces.
+
+## How it works
+
+```mermaid
+flowchart LR
+    M["Model<br>(any MCP client)"] -- "run(code)" --> S
+    subgraph S["discord-mcp server"]
+        direction TB
+        N["Persistent JS namespace<br>client · describe · ops · kept helpers"]
+        U["mcp.server.tool()"]
+    end
+    N -- "agent:id placeholder<br>(Unix socket)" --> A["discord-mcp agent<br>holds the decrypted tokens"]
+    A -- "real token<br>REST + gateway" --> D[("Discord")]
+    U --> O["Other MCP servers<br>https or stdio"]
+```
+
+## Quick start
+
+**Prerequisites:** Node.js 22.15+, npm, and a [Discord bot token](https://discord.com/developers/applications).
+
+```bash
+git clone https://github.com/drvova/discord-mcp.git
+cd discord-mcp
+npm install            # also builds dist/
+```
+
+**1. Store the token, encrypted, like an SSH key.** You're prompted (hidden) for the token and a passphrase.
+
+```bash
+node dist/bootstrap.js identity add default-bot
+```
+
+**2. Start the agent** in its own terminal, like `ssh-agent`. It asks for the passphrase and prints the socket to use.
+
+```bash
+node dist/bootstrap.js agent
+# DISCORD_MCP_AGENT_SOCK=/run/user/1000/discord-mcp/agent.sock; export DISCORD_MCP_AGENT_SOCK;
+```
+
+**3. Point your MCP client at the server**, with only the agent socket in its environment:
+
+```json
+{
+  "mcpServers": {
+    "discord": {
+      "command": "node",
+      "args": ["/absolute/path/to/discord-mcp/dist/bootstrap.js"],
+      "env": { "DISCORD_MCP_AGENT_SOCK": "/run/user/1000/discord-mcp/agent.sock" }
+    }
+  }
+}
+```
+
+Then ask the model to call `run` with empty code: it gets the manual and takes it from there.
+
+<details>
+<summary><b>Quicker, less safe: direct mode</b></summary>
+
+<br>
+
+Skip the agent and give the server the token directly:
+
+```bash
+DISCORD_TOKEN=your_bot_token node dist/bootstrap.js
+```
+
+This works, but the token then lives in the server process, where code in the `run` tool can read it (for example through the client's auth config). The server warns about this at startup. Secret environment variables are removed from `process.env` once read, in both modes.
+
+</details>
+
+<details>
+<summary><b>Other ways to run it</b></summary>
+
+<br>
+
+| Command | What it does |
+| --- | --- |
+| `npm start` | stdio server (the default MCP transport) |
+| `npm run web` | HTTP + SSE server on port 1455 (see [HTTP mode](#http-mode)) |
+| `npm run dev` | rebuild on change and restart, with pretty logs |
+| `docker compose up` | containerised server; mount a volume at `/data` to keep the model's helpers |
+
+</details>
+
+## The run tool
+
+`run` is the only tool the server advertises.
+
+| Argument | Type | |
+| --- | --- | --- |
+| `code` | string, required | JavaScript to run. **Empty returns the manual.** |
+| `identity` | string | Identity to bind as `client` before the code runs, e.g. `default-bot` |
+| `vars` | object of strings | Named strings available as `vars.<name>`, for long text or payloads you'd rather not escape inside `code` |
+
+The code runs in **one long-lived namespace** with top-level `await`. The result is whatever it printed plus the value of its last expression.
+
+### What's in the namespace
 
 | Name | What it is |
 | --- | --- |
 | `client` | The bound discord.js `Client`; drive its full API directly |
-| `identities()`, `connect(id, { mode, token })`, `bind(id)` | List, create and bind identities (the working objects) |
+| `identities()`, `bind(id)`, `connect(id, { mode, token })` | List and switch identities; `connect` only in direct mode |
 | `identity` | `{ id, mode }` of the bound identity |
-| `packages()`, `symbols(query)`, `pkg(alias)`, `discord` | What the project offers: loaded Discord runtime packages, their symbols, their exports, the discord.js module |
-| `describe(x)` | Live capabilities (for a client: readiness, user, intents, guilds) plus every member's signature and one-line doc, taken from discord.js's own JSDoc |
-| `ops.packages / symbols / preflight / refresh / invoke / batch(params)` | The earlier structured operations, now plain functions |
-| `mcp.<server>.<tool>(args)`, `mcpServers()`, `mcpConnect(name, config)`, `mcpDisconnect(name)` | Other MCP servers' tools as functions (see below) |
-| `vars`, `print`, `console`, `fetch`, `require`, `sleep`, `man()` | I/O and utilities |
+| `describe(x)` | Live capabilities (for a client: ready, user, intents, guilds, REST latency) and every member's signature with a one-line doc from discord.js's JSDoc |
+| `packages()`, `symbols(query)`, `pkg(alias)`, `discord` | The loaded Discord packages, their symbols and exports, and the discord.js module |
+| `ops.packages / symbols / preflight / refresh / invoke / batch` | Structured operations with dry runs and preflight checks, as plain functions |
+| `mcp.<server>.<tool>(args)`, `mcpServers()`, `mcpConnect()`, `mcpDisconnect()` | [Other MCP servers](#other-mcp-servers-as-functions) as functions |
+| `network()` | Proxy and TLS policy, latency per identity and server, gateway ping |
 | `kept()`, `kept(name)`, `forget(name)` | Saved definitions |
+| `vars`, `print`, `console`, `fetch`, `require`, `sleep`, `man()` | I/O and utilities |
 
-### Definitions persist across restarts
+### Examples
 
-After each successful call, each top-level **definition** — a `function` or `class` declaration, or a `const` bound to a literal, function or class — is saved as its own file and loaded back when the server starts. Each saved unit loads in isolation, so a broken one is reported by `kept()` and never stops the server. Statements that do work (calls, `let`, `const x = await …`) are never saved or replayed. `forget(name)` deletes a definition.
+Each block is the `code` of one `run` call.
 
-Saved definitions live in `DISCORD_MCP_KEPT_DIR`, defaulting to `$XDG_CONFIG_HOME/discord-mcp/kept` (`~/.config/discord-mcp/kept`). Mount it as a volume to keep the model's tooling across container restarts.
+```js
+// What can this bot do right now?
+describe(client)
+```
 
-### Other MCP servers as functions (code mode)
+```js
+// Search what discord.js exports
+(await symbols("TextChannel#send")).items.map((s) => s.name)
+```
 
-Other MCP servers are not re-advertised as tools. Their tools become async functions inside the namespace — the "code mode" / code-execution-with-MCP pattern — so the model composes several calls in one `run`, filters results in code, and prints only what it needs:
+```js
+// Check a call before making it
+await ops.preflight({
+  packageAlias: "discordjs",
+  symbol: "TextChannel#send",
+  kind: "function",
+  target: "channel",
+  context: { channelId: "123456789012345678" },
+})
+```
+
+```js
+// Switch to another identity the agent holds
+await bind("ops-bot");
+client.user.tag
+```
+
+### Helpers survive restarts
+
+After each successful call, every top-level **definition** (a `function` or `class` declaration, or a `const` bound to a literal, function or class) is saved as its own file and loaded back when the server starts. Each one loads in isolation, so a broken file is reported by `kept()` and never stops the server. Statements that do work (calls, `let`, `const x = await …`) are never saved or replayed.
+
+Definitions live in `DISCORD_MCP_KEPT_DIR` (default `~/.config/discord-mcp/kept`). In a container, mount it as a volume.
+
+## Secrets: the SSH model
+
+Discord tokens are handled the way SSH handles private keys.
+
+| SSH | discord-mcp |
+| --- | --- |
+| `~/.ssh/id_*`, mode 600, passphrase-protected | `~/.config/discord-mcp/identities`, mode 600, AES-256-GCM under a scrypt key from your passphrase |
+| `ssh-add` · `ssh-add -l` · `ssh-keygen -p` | `identity add ID` · `identity list` · `identity passwd` · `identity remove ID` |
+| `ssh-agent` + `SSH_AUTH_SOCK` | `discord-mcp agent` + `DISCORD_MCP_AGENT_SOCK` |
+| the agent signs; the key never leaves it | the agent puts the token on Discord requests; the server only holds `agent:<id>` |
+| "UNPROTECTED PRIVATE KEY FILE!" | secret files readable by others are refused, with the `chmod` that fixes them |
+| `known_hosts`, `StrictHostKeyChecking` | [`known_hosts` pinning](#network) for upstream servers and an https proxy |
+
+<details>
+<summary><b>How the agent keeps tokens out of reach</b></summary>
+
+<br>
+
+- **REST.** The server's discord.js client logs in as `agent:default-bot` and sends its REST requests to the agent over the Unix socket. The agent swaps the placeholder `Authorization` header for the real token and forwards the request to `https://discord.com/api`, always to that base, whatever path the client sends.
+- **Gateway.** The gateway URL Discord returns is replaced with an agent address. The agent relays the WebSocket and swaps the token inside the `IDENTIFY` and `RESUME` frames. It only connects to gateway URLs Discord itself returned, which clients see as opaque handles, and only on `wss://*.discord.gg`.
+- **The result.** Code in `run` can use Discord (`client`, `ops.*`, its own helpers) but can't read a token. It isn't in `client.token`, the auth config, `process.env`, the encrypted file, or the agent's API. `connect()` is disabled with the agent, so tokens never pass through the model.
+- **Adding identities.** `identity add` encrypts into the file and, when `DISCORD_MCP_AGENT_SOCK` is set, also loads the identity into the running agent, like `ssh-add`; then `bind("id")`.
+- **Input.** Tokens and passphrases come from a hidden prompt, a mode 600 file (`--token-file`, `DISCORD_MCP_PASSPHRASE_FILE`) or stdin, never from command-line arguments (visible in `ps`). `--token-env DISCORD_TOKEN` migrates an existing variable.
+- **Unattended agents** (containers, services): set `DISCORD_MCP_PASSPHRASE_FILE` to a mode 600 file. For a Docker secret, give it `mode: 0400`.
+- **Proxy.** With `DISCORD_MCP_PROXY` set, the agent sends REST *and* the gateway through it.
+
+</details>
+
+> [!NOTE]
+> **Threat model.** Like ssh-agent, this protects tokens from code running *in the server*, not from other processes running as the same OS user with debugging rights. Start the agent separately (not as the server's child). For a hard boundary, run it as a different OS user or in its own container, sharing only the socket. Anything that can reach the socket can *use* the identities, exactly like SSH agent forwarding.
+
+## Other MCP servers as functions
+
+Other MCP servers aren't re-advertised as tools. Their tools become async functions in the namespace (the "code mode" pattern), so the model composes several calls in one `run`, filters results in code, and prints only what it needs:
 
 ```js
 // GitHub issues mentioned in the last 50 messages of a channel
@@ -65,9 +242,9 @@ for (const n of new Set(refs)) {
 }
 ```
 
-- A call resolves to the tool's structured content, or its text (parsed when it is JSON); a tool error is thrown.
-- Tool names become identifiers (`get-issue` → `get_issue`). `describe(mcp.github)` lists each tool's signature, generated from its input schema, with its description.
-- Servers listed in `DISCORD_MCP_UPSTREAMS` connect at startup. Its value is inline JSON or a path to a JSON file, in the usual `mcpServers` shape. `${VAR}` in strings is read from the server's environment, so secrets stay out of the file:
+- **Results:** a call resolves to the tool's structured content, or its text (parsed when it's JSON). A tool error is thrown.
+- **Discovery:** tool names become identifiers (`get-issue` → `get_issue`). `describe(mcp.github)` lists each tool's signature, generated from its input schema.
+- **Configuration:** servers in `DISCORD_MCP_UPSTREAMS` (inline JSON or a file, in the usual `mcpServers` shape) connect at startup. `${VAR}` is read from the environment, so secrets stay out of the file:
 
   ```json
   {
@@ -78,238 +255,119 @@ for (const n of new Set(refs)) {
   }
   ```
 
-  `url` servers use streamable HTTP and fall back to SSE (force one with `"type": "http"` or `"sse"`); `command` servers use stdio. An unreachable server is reported by `mcpServers()` and does not stop startup.
-- The model can connect more at runtime with `mcpConnect(name, config)`; those last until the server restarts. Kept helpers that wrap `mcp.*` tools are saved like any other definition and work again once their server reconnects.
-- Upstream tools run with whatever credentials you configure for them, and the code that calls them runs with the server's full authority — the same sandboxing guidance applies.
+- **Transports:** `url` servers use streamable HTTP with SSE fallback (force one with `"type": "http"` or `"sse"`). `command` servers use stdio. An unreachable server shows up in `mcpServers()` and doesn't stop startup.
+- **At runtime:** `mcpConnect(name, config)` adds a server until the next restart. Helpers that wrap `mcp.*` calls are saved like any other definition.
 
-### Network: proxy, encryption and latency
+## Network
 
-- **Proxy.** Set `DISCORD_MCP_PROXY` to an `http://` or `https://` proxy and the server sends Discord REST requests (every action: sending messages, fetching, moderating), upstream MCP servers over HTTP, and the run tool's `fetch` through it. Requests are tunnelled with `CONNECT`, so TLS stays end-to-end and the proxy never sees plaintext. An invalid or SOCKS proxy URL stops the server at startup rather than silently connecting directly.
-- **Not proxied:** in direct mode, the Discord gateway WebSocket (events and heartbeats): `@discordjs/ws` has no proxy option, so it connects directly; it is always `wss://`. With the agent (below), the agent owns that connection and tunnels it through the proxy too. Stdio upstream servers are local processes.
-- **known_hosts.** Upstream MCP servers and an `https://` proxy are pinned like SSH hosts: the first connection records the SHA-256 of the server's TLS public key in `~/.config/discord-mcp/known_hosts`, and later connections must present the same key (normal certificate checks still apply first). A changed key is refused with a "REMOTE HOST IDENTIFICATION HAS CHANGED" error; if the rotation is expected, `discord-mcp known-hosts remove HOST:PORT`. Set `DISCORD_MCP_STRICT_HOST_KEY_CHECKING=yes` to refuse hosts that are not already listed. Discord itself is not pinned: its certificates rotate frequently.
-- **Encrypted upstreams only.** Upstream MCP server URLs must be `https://`; plain `http://` is refused unless it points at this machine (localhost). Certificate verification is required: with `NODE_TLS_REJECT_UNAUTHORIZED=0` the server refuses https upstreams.
-- **Latency.** Every Discord REST request is timed per identity and every upstream tool call per server. `network()` in the run tool shows the proxy (credentials removed), what is and isn't proxied, the TLS policy, latency stats (count, errors, last, avg, p50, p95) and the gateway ping. `mcpServers()` and `describe(client)` include the same stats. With OpenTelemetry on, they are exported as `discord_mcp_network_latency_ms`.
-- **Tokens stay out of it.** Latency is labelled by identity name (`default-bot`) or server name, never by token. Outgoing-request trace spans have Discord webhook/interaction tokens removed from their paths and query strings stripped (`/webhooks/123/:token`). The proxy URL is shown without its credentials.
-
-### Secrets: the SSH model
-
-Discord tokens are handled the way SSH handles private keys.
-
-| SSH | discord-mcp |
+| | |
 | --- | --- |
-| `~/.ssh/id_*`, mode 600, passphrase-protected | `~/.config/discord-mcp/identities`, mode 600, encrypted with AES-256-GCM under a key derived from your passphrase (scrypt) |
-| `ssh-add` / `ssh-add -l` / `ssh-keygen -p` | `discord-mcp identity add ID` / `identity list` / `identity passwd` (plus `identity remove ID`) |
-| `ssh-agent` + `SSH_AUTH_SOCK` | `discord-mcp agent` + `DISCORD_MCP_AGENT_SOCK` |
-| the agent signs; keys never leave it | the agent puts the token on Discord requests; the server only ever holds `agent:<id>` |
-| "UNPROTECTED PRIVATE KEY FILE!" | secret files readable by others are refused, with the `chmod` that fixes them |
-| `known_hosts`, `StrictHostKeyChecking` | `~/.config/discord-mcp/known_hosts`, `DISCORD_MCP_STRICT_HOST_KEY_CHECKING` (see Network) |
-
-```bash
-discord-mcp identity add default-bot          # prompts for the token and a passphrase (hidden)
-eval "$(discord-mcp agent)" &                 # prompts for the passphrase, prints the socket to export
-DISCORD_MCP_AGENT_SOCK=... discord-mcp        # the MCP server: no DISCORD_TOKEN anywhere
-```
-
-- **How the agent works.** The server's discord.js client logs in with the placeholder `agent:default-bot`. Its REST requests go to the agent over the Unix socket, and the agent replaces the placeholder `Authorization` header with the real token before forwarding to `https://discord.com/api`. The gateway URL Discord returns is swapped for an agent address, and the agent replaces the token inside the gateway `IDENTIFY`/`RESUME` frames. So code in the `run` tool can *use* Discord (`client`, `ops.*`, its own helpers) but cannot *read* a token: not through `client.token`, the auth config, `process.env`, the encrypted file, or the agent's API.
-- **Tokens only go to Discord.** REST is always forwarded to the configured Discord API base, whatever path a client sends. The agent connects gateways only to URLs Discord itself returned, which clients see as opaque handles, and only on `wss://*.discord.gg`.
-- **Adding identities.** `discord-mcp identity add` encrypts into the file and, when `DISCORD_MCP_AGENT_SOCK` is set, also loads the identity into the running agent (like `ssh-add`); then `bind("id")` in the run tool. `connect()` in the run tool is disabled with the agent, so tokens never pass through the model. Tokens and passphrases are read from a hidden prompt, a mode 600 file (`--token-file`, `DISCORD_MCP_PASSPHRASE_FILE`), or stdin, never from command-line arguments, which every user can see in `ps`. `--token-env DISCORD_TOKEN` helps migrate an existing environment variable.
-- **Unattended agents** (containers, services): set `DISCORD_MCP_PASSPHRASE_FILE` to a mode 600 file (for a Docker secret, give it `mode: 0400`).
-- **Direct mode** (no `DISCORD_MCP_AGENT_SOCK`, tokens from `DISCORD_TOKEN`) still works but keeps tokens in the server process, where `run` code can read them; the server warns at startup. In both modes, secret environment variables are removed from `process.env` once read.
-- **Threat model.** Like ssh-agent, this protects tokens from code running *in the server*, not from other processes running as the same OS user with debugging rights. Start the agent separately from the server (not as its child), and for a stronger boundary run it as a different OS user or in its own container, sharing only the socket. Anything that can reach the socket can *use* the identities, exactly like SSH agent forwarding.
-
-### Runtime
-
-- **HTTP runtime**: Hono (`@hono/node-server`)
-- The server starts without a Discord token; the model can log in later with `connect(...)` / `bind(...)`.
-
-## Branch Model
-
-- Canonical branch: `new-architecture-main`
-- Repository default branch: `new-architecture-main`
-
-## Quick Start
-
-### Prerequisites
-
-- Node.js 22.15+
-- npm
-- Discord bot token
-
-### Install
-
-```bash
-git clone https://github.com/drvova/discord-mcp.git
-cd discord-mcp
-npm install
-npm run build
-```
-
-### Run
-
-```bash
-# stdio mode (default)
-npm start
-
-# dev mode
-npm run dev
-
-# HTTP/SSE mode
-npm run web
-```
+| **Proxy** | `DISCORD_MCP_PROXY` (`http://` or `https://`) carries Discord REST, upstream MCP over HTTP and `fetch` in `run`. With the agent, the Discord gateway too. Requests are tunnelled with `CONNECT`, so TLS stays end-to-end. An invalid or SOCKS URL stops startup rather than silently connecting directly. |
+| **Not proxied** | In direct mode, the Discord gateway WebSocket (`@discordjs/ws` has no proxy option; it is always `wss://`). Stdio upstream servers, which are local processes. |
+| **Encrypted upstreams** | Upstream MCP URLs must be `https://`, except to localhost. With `NODE_TLS_REJECT_UNAUTHORIZED=0`, https upstreams are refused. |
+| **known_hosts** | Upstream servers and an https proxy are pinned by the SHA-256 of their TLS public key on first use. A changed key is refused ("REMOTE HOST IDENTIFICATION HAS CHANGED"); clear it with `discord-mcp known-hosts remove HOST:PORT`. `DISCORD_MCP_STRICT_HOST_KEY_CHECKING=yes` refuses unknown hosts. Discord isn't pinned: its certificates rotate often. |
+| **Latency** | Discord REST is timed per identity and upstream calls per server (count, errors, last, avg, p50, p95), shown in `network()`, `mcpServers()` and `describe(client)`, and exported as `discord_mcp_network_latency_ms`. |
+| **No tokens in telemetry** | Latency is labelled by identity or server name, never by token. Trace spans have Discord webhook and interaction tokens removed from paths (`/webhooks/123/:token`) and query strings stripped. Proxy URLs are shown without credentials. |
 
 ## Configuration
 
-Create `.env`:
+Environment variables, all optional. A `.env` file in the working directory is loaded too.
 
-```env
-DISCORD_TOKEN=your_bot_token_here
-DISCORD_GUILD_ID=your_guild_id_here
+<details open>
+<summary><b>Discord and identities</b></summary>
 
-# Optional user-mode token
-# DISCORD_USER_TOKEN=your_discord_user_token
+<br>
 
-# Recommended instead of DISCORD_TOKEN: keep tokens in the discord-mcp agent
-# (see "Secrets: the SSH model"); the server then only needs:
-# DISCORD_MCP_AGENT_SOCK=/run/user/1000/discord-mcp/agent.sock
-# DISCORD_MCP_STRICT_HOST_KEY_CHECKING=accept-new   # or yes
+| Variable | |
+| --- | --- |
+| `DISCORD_MCP_AGENT_SOCK` | The agent socket. Recommended: then the server needs no token at all |
+| `DISCORD_TOKEN` / `DISCORD_USER_TOKEN` | Direct mode only |
+| `DISCORD_GUILD_ID` | Default guild |
+| `DISCORD_INTENTS` | Comma-separated gateway intents (privileged ones must be enabled in the Developer Portal) |
+| `DISCORD_MCP_CONFIG_DIR` | Where `identities` and `known_hosts` live (default `~/.config/discord-mcp`) |
+| `DISCORD_MCP_IDENTITIES_FILE`, `DISCORD_MCP_KNOWN_HOSTS` | Override those two paths individually |
+| `DISCORD_MCP_PASSPHRASE_FILE` | Mode 600 file with the identities passphrase, for unattended agents |
+| `DISCORD_MCP_MASTER_KEY`, `DISCORD_MCP_IDENTITY_STORE_PATH` | Legacy direct-mode store for `connect()` |
 
-# Legacy direct-mode identity store (connect() persistence)
-# DISCORD_MCP_MASTER_KEY=your_32_byte_key_material
-# DISCORD_MCP_IDENTITY_STORE_PATH=./.discord-mcp-identities.enc
+</details>
 
-# Optional: where the run tool saves the model's definitions
-# DISCORD_MCP_KEPT_DIR=~/.config/discord-mcp/kept
+<details>
+<summary><b>The run tool, upstream servers and network</b></summary>
 
-# Optional: other MCP servers whose tools become mcp.<server>.<tool>() functions
-# DISCORD_MCP_UPSTREAMS=./mcp-servers.json
+<br>
 
-# Optional: route Discord REST, upstream MCP (http) and run-tool fetch through a proxy
-# (http:// or https:// only; the Discord gateway WebSocket still connects directly)
-# DISCORD_MCP_PROXY=http://user:pass@proxy.internal:3128
+| Variable | |
+| --- | --- |
+| `DISCORD_MCP_KEPT_DIR` | Saved definitions (default `~/.config/discord-mcp/kept`) |
+| `DISCORD_MCP_UPSTREAMS` | Other MCP servers: inline JSON or a path, `mcpServers` shape |
+| `DISCORD_MCP_PROXY` | `http://` or `https://` proxy; credentials allowed in the URL |
+| `DISCORD_MCP_STRICT_HOST_KEY_CHECKING` | `accept-new` (default) or `yes` |
+| `DISCORD_MCP_BLOCK_HIGH_RISK` | `true` blocks high-risk `ops.*` calls |
+| `DISCORD_MCP_AUDIT_LOG_PATH` | Append every `run` call to this file |
 
-# Optional risk policy override (ops.* functions only)
-# DISCORD_MCP_BLOCK_HIGH_RISK=true
+</details>
 
-# Optional audit log file
-# DISCORD_MCP_AUDIT_LOG_PATH=./data/discord-mcp-audit.log
+<details>
+<summary><b>Logging, telemetry and HTTP</b></summary>
 
-# Optional logging
-# LOG_LEVEL=INFO
-# LOG_STYLE=pretty
-# LOG_COLOR=true
-# ENABLE_LOGGING=true
+<br>
 
-# Optional OpenTelemetry
-# OTEL_ENABLED=true
-# OTEL_SERVICE_NAME=discord-mcp
-# OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces
-# OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer token
-# OTEL_PROMETHEUS_PORT=9464
-# OTEL_PROMETHEUS_ENDPOINT=/metrics
+| Variable | |
+| --- | --- |
+| `LOG_LEVEL` | `error`, `warn`, `info` (default), `debug` |
+| `LOG_STYLE` | `pretty` or `json` (default: pretty in a terminal or dev, json otherwise). Logs always go to **stderr**, so stdout stays clean for the stdio protocol |
+| `LOG_COLOR`, `ENABLE_LOGGING` | Colors on/off; `false` disables logging |
+| `OTEL_ENABLED`, `OTEL_SERVICE_NAME` | OpenTelemetry (on by default; `false` turns it off) and the service name |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS` | Where traces go (OTLP over HTTP) |
+| `OTEL_PROMETHEUS_PORT`, `OTEL_PROMETHEUS_ENDPOINT` | Prometheus metrics (default `:9464/metrics`) |
+| `MCP_HTTP_PORT` (or `PORT`) | Serve over HTTP + SSE instead of stdio |
+| `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_OAUTH_REDIRECT_URI` | OAuth bot-install flow in HTTP mode |
 
-# Optional OAuth (HTTP mode)
-# DISCORD_CLIENT_ID=...
-# DISCORD_CLIENT_SECRET=...
-# DISCORD_OAUTH_REDIRECT_URI=http://localhost:1455/oauth/discord/callback
-```
+</details>
 
-## HTTP Endpoints
+## HTTP mode
 
-When `MCP_HTTP_PORT` (or `PORT`) is set:
+With `MCP_HTTP_PORT` set, the server speaks MCP over HTTP and SSE:
 
-- `GET /sse`
-- `POST /message`
-- `GET /health`
-- `GET /oauth/discord/start`
-- `GET /oauth/discord/callback`
+| Endpoint | |
+| --- | --- |
+| `POST /` | MCP JSON-RPC: `initialize`, `tools/list`, `tools/call` |
+| `GET /sse`, `POST /message` | MCP over SSE |
+| `GET /health` | Health check |
+| `GET /oauth/discord/start`, `GET /oauth/discord/callback` | OAuth bot install |
 
-## Logging
-
-Server logs use a shared Pino logger with compact one-line output (no ISO timestamp clutter in pretty mode).
-
-- `LOG_LEVEL` controls verbosity: `ERROR`, `WARN`, `INFO`, `DEBUG` (default `INFO`)
-- `LOG_STYLE` controls output shape: `pretty` or `json` (when unset, auto mode uses `pretty` for interactive terminals and dev scripts, otherwise `json`)
-- `LOG_COLOR` enables/disables ANSI colors (default `true`)
-- `ENABLE_LOGGING` disables all logs when set to `false` (default `true`)
-
-For stdio MCP mode, logs are written to stderr so protocol output on stdout remains clean.
-
-### OpenTelemetry
-
-- Traces are exported using OTLP HTTP (`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`).
-- Metrics are exposed via Prometheus exporter at `http://localhost:${OTEL_PROMETHEUS_PORT:-9464}${OTEL_PROMETHEUS_ENDPOINT:-/metrics}`.
-- Service metadata is controlled by `OTEL_SERVICE_NAME`.
-
-## Typed HTTP Client (`hc`)
-
-You can use the generated typed client from Hono route types:
+A typed client is generated from the route types:
 
 ```ts
 import { createHttpClient } from "./src/http-client.js";
 
 const client = createHttpClient("http://localhost:1455");
-const healthResponse = await client.health.$get();
-const health = await healthResponse.json();
-
-const rpcResponse = await client.index.$post({
-  json: {
-    id: 1,
-    method: "tools/list"
-  }
-});
-const rpc = await rpcResponse.json();
+const health = await (await client.health.$get()).json();
 ```
 
-The MCP JSON-RPC contract on `POST /` (`initialize`, `tools/list`, `tools/call`) serves the same single `run` tool.
+## Security
 
-## Usage Examples
+- **Sandbox the server.** `run` executes code with the server's full authority. Give the container, VM or jail only the network, filesystem and identities you intend the model to use.
+- **Use the agent.** It keeps tokens out of the server process. In direct mode, `run` code can read them.
+- **Least privilege on Discord.** Give bots only the permissions they need, and rotate tokens.
+- **Audit.** Every `run` call is written to the audit log; set `DISCORD_MCP_AUDIT_LOG_PATH` in production.
+- **Know what the policy covers.** `DISCORD_MCP_BLOCK_HIGH_RISK`, `dryRun` and `allowWrite` apply to `ops.*` only. Code that uses `client` directly is bounded by the sandbox and the bot's Discord permissions.
 
-Each example is the `code` argument of one `run` call.
-
-```js
-// Discover what is available
-describe(client)
-```
-
-```js
-// Package and symbol catalog
-(await symbols("TextChannel#send")).items.map((s) => s.name)
-```
-
-```js
-// The earlier preflight/invoke pipeline, called as functions
-await ops.preflight({
-  packageAlias: "discordjs",
-  symbol: "TextChannel#send",
-  kind: "function",
-  target: "channel",
-  context: { channelId: "123456789012345678" },
-})
-```
-
-```js
-// Log in as another identity and keep working in the same namespace
-await connect("ops-bot", { mode: "bot", token: vars.token });
-client.user.tag
-```
-
-## Security Guidance
-
-- `run` executes code with the server's full authority. Run the server sandboxed (container/VM/jail) with only the network, filesystem and tokens you intend the model to use.
-- Keep tokens out of the server process: use `discord-mcp agent` (see "Secrets: the SSH model"). In direct mode, `run` code can read the tokens.
-- Keep tokens private and rotate regularly; give bots the minimum Discord permissions required.
-- Every `run` call is written to the audit log; enable `DISCORD_MCP_AUDIT_LOG_PATH` in production.
-- `DISCORD_MCP_BLOCK_HIGH_RISK`, `dryRun` and `allowWrite` apply to the `ops.*` functions only; code that uses `client` directly is bounded by the sandbox and the bot's Discord permissions.
-
-## Scripts
+## Development
 
 The toolchain is [Rstack](https://rspack.rs): Rslib builds, Rstest tests, Rslint lints and type-checks.
 
-- `npm run build` - build `src/` to `dist/` with Rslib (bundleless ESM, one output file per source module)
-- `npm run dev` (or `bun run dev`) - build once, then run `rslib build --watch` + `node --watch dist/bootstrap.js` with forced pretty logs
-- `npm start` - run the built stdio server
-- `npm run web` - run the built Hono HTTP/SSE server on port 1455
-- `npm test` - build, then run the test suite with Rstest (some tests spawn the built server modules)
-- `npm run lint` - lint with Rslint
-- `npm run typecheck` - type-check with Rslint (TypeScript's native compiler)
-- `npm run check` - lint and type-check in one pass
+| Script | |
+| --- | --- |
+| `npm run build` | Build `src/` to `dist/` (bundleless ESM, one file per module) |
+| `npm run dev` | Build, then rebuild and restart on change, with pretty logs |
+| `npm test` | Build, then run the Rstest suite (some tests spawn the built server) |
+| `npm run lint` · `npm run typecheck` · `npm run check` | Rslint: lint, type-check (TypeScript's native compiler), or both |
+
+The animated banner at the top is authored with [Clayzo](https://www.npmjs.com/package/clayzo) in [`assets/banner`](assets/banner), its own small project.
+
+The default branch is `new-architecture-main`.
+
+## License
+
+[MIT](LICENSE)
