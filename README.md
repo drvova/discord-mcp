@@ -20,7 +20,7 @@ and keeps them across calls and restarts, instead of picking from a fixed menu o
 [Configuration](#configuration) ·
 [Security](#security)
 
-<a href="https://drvova.github.io/discord-mcp/"><img src="assets/img/trailer.svg" width="100%" alt="The 25-second discord-mcp teaser, playing silently, with a chrome play button: click to watch it with sound."></a>
+<a href="https://drvova.github.io/discord-mcp/"><img src="assets/img/trailer.svg" width="100%" alt="The 25-second discord-mcp teaser, playing silently: a film of the titanium device from the banner, its engraving, key and LCD running. Click to watch it with sound."></a>
 <sub><a href="https://drvova.github.io/discord-mcp/">▶ Watch the teaser with sound</a></sub>
 
 </div>

@@ -1,6 +1,6 @@
 # README banner and trailer
 
-The animated banner at the top of the main README and the teaser trailer under it, authored with [Clayzo](https://www.npmjs.com/package/clayzo). This folder is its own project, so Clayzo's packages never become dependencies of the server. `kit.ts` holds the parts they share: the block lettering (A–Z, `.`, `-`, in a heavy or a light cut), the trailer's liquid chrome, crossed-blade emblem and steel bunker, and the shape helpers.
+The animated banner at the top of the main README and the teaser trailer under it, authored with [Clayzo](https://www.npmjs.com/package/clayzo). This folder is its own project, so Clayzo's packages never become dependencies of the server. `device.ts` is the device both draw; `kit.ts` holds the scene builder, shape and gradient helpers, the travelling light and the block lettering (A–Z, `.`, `-`).
 
 ```bash
 cd assets/banner
@@ -10,7 +10,7 @@ npx clayzo login            # once per machine; rendering needs a Clayzo account
 npx clayzo export banner.json ../img/banner.svg --format svg
 ```
 
-The trailer (`trailer.ts`, 25 s at 1920×1080) is exported three ways. GitHub won't play a video in a README, so the README shows a silent, looping SVG of it with a play badge in the same titanium and elastomer as the player (`--preview`), linked to a player page. The page ([`site/`](../../site), published to GitHub Pages by `.github/workflows/pages.yml`) is a custom player built like a piece of late-90s / early-2000s kit (a brushed-titanium plate, molded-rubber controls, a mesh grille, an LCD readout and a sewn-in spec tag) that plays the video with sound: a WebM (VP9/Opus), with the MP4 (H.264/AAC) as the fallback. `trailer-audio.py` synthesises the soundtrack (Python 3 with NumPy, no samples), and ffmpeg muxes it in:
+The trailer (`trailer.ts`, 25 s at 1920×1080) is a product film of the banner's device. `device.ts` builds that device once (the titanium plate, engraving, screws, channel, LCD, key, levels and vent) and both the banner and the trailer use it. The trailer frames it with one camera: macro shots of real parts while the device acts out the story on its LCD and status light, then a pull back to the whole device. The plate wears the v5 design kit's brushed-titanium texture, re-encoded as a small JPEG in `textures/` and embedded in the document. It is exported three ways. GitHub won't play a video in a README, so the README shows a silent, looping SVG of it with a play badge in the same titanium and elastomer as the player (`--preview`), linked to a player page. The page ([`site/`](../../site), published to GitHub Pages by `.github/workflows/pages.yml`) is a custom player built like a piece of late-90s / early-2000s kit (a brushed-titanium plate, molded-rubber controls, a mesh grille, an LCD readout and a sewn-in spec tag) that plays the video with sound: a WebM (VP9/Opus), with the MP4 (H.264/AAC) as the fallback. `trailer-audio.py` synthesises the soundtrack (Python 3 with NumPy, no samples), and ffmpeg muxes it in:
 
 ```bash
 node trailer.ts --preview && npx clayzo export trailer-preview.json ../img/trailer.svg --format svg   # the README preview
@@ -19,7 +19,7 @@ python3 trailer-audio.py    # writes trailer.wav
 npx clayzo export trailer.json trailer.mp4 --format mp4 --tier final   # slow: ~20 min on a CPU
 ffmpeg -i trailer.mp4 -i trailer.wav -map 0:v -map 1:a -c:v copy -c:a aac -b:a 192k -shortest -movflags +faststart ../video/trailer.mp4
 ffmpeg -i ../video/trailer.mp4 -c:v libvpx-vp9 -b:v 0 -crf 34 -row-mt 1 -c:a libopus -b:a 128k ../video/trailer.webm
-ffmpeg -ss 1.4 -i ../video/trailer.mp4 -frames:v 1 -vf scale=1280:720 -q:v 3 ../../site/poster.jpg
+ffmpeg -ss 5.2 -i ../video/trailer.mp4 -frames:v 1 -vf scale=1280:720 -q:v 3 ../../site/poster.jpg
 ```
 
 - Style: late-90s / early-2000s industrial kit and technical sportswear, following the Y2K Universal Design Spec (v3), the same language as the player page: one brushed-titanium plate with an aerodynamic nose that tapers to the right, screws only at its corners, one continuous biomorphic channel pressed into it from the nose to the module, the name engraved in a wide, upright industrial cut with an engraved spec line, and a molded-elastomer module (smoked-polymer LCD, pebble key with a status light, level columns, mesh vent). Spec palette (obsidian, graphite, titanium, chrome highlight, bone) and one accent, Ion Blue `#65B8D6`, used for state only.
