@@ -1,9 +1,11 @@
 // A 25-second teaser trailer in the banner's style, authored with Clayzo.
 //
 //   node trailer.ts                     writes trailer.json and validates it
+//   npx clayzo export trailer.json ../img/trailer.svg --format svg
+//                                       the silent version the README plays inline
 //   npx clayzo export trailer.json trailer.mp4 --format mp4
 //   python3 trailer-audio.py            synthesises the soundtrack (trailer.wav)
-//   ffmpeg -i trailer.mp4 -i trailer.wav -c:v copy -c:a aac -shortest ../video/trailer.mp4
+//   ffmpeg -i trailer.mp4 -i trailer.wav -map 0:v -map 1:a -c:v copy -c:a aac -shortest ../video/trailer.mp4
 //
 // The cut follows 2000s product spots: a slow build out of darkness, macro
 // hardware and light raking across metal, parts sliding and locking with

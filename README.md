@@ -20,8 +20,8 @@ and keeps them across calls and restarts, instead of picking from a fixed menu o
 [Configuration](#configuration) ·
 [Security](#security)
 
-<a href="assets/video/trailer.mp4"><img src="assets/img/trailer-poster.jpg" width="480" alt="Play the 25-second discord-mcp teaser trailer"></a><br>
-<sub><a href="assets/video/trailer.mp4">▶ Watch the 25-second teaser</a> (with sound)</sub>
+<img src="assets/img/trailer.svg" width="100%" alt="The 25-second discord-mcp teaser: a chrome bolt seats, two blades lock into the emblem, helpers stack, blast doors seal the token key, then the end card.">
+<sub>The 25-second teaser plays above, silent. With sound: <a href="assets/video/trailer.mp4">trailer.mp4</a> (6.6 MB download).</sub>
 
 </div>
 
