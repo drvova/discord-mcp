@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/img/banner.svg" width="100%" alt="discord-mcp. One tool runs your code, tokens stay in the agent, helpers are kept across restarts.">
+<img src="assets/img/banner.svg" width="100%" alt="discord-mcp. One tool runs your code; tokens stay in the agent.">
 
 ### Discord for language models, through one tool that runs code
 
