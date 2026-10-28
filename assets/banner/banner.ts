@@ -12,7 +12,13 @@
 //   an engraved spec line and a taped seam;
 // - a molded-rubber control module where the hand goes: a pixel LCD, a
 //   pebble key with a status light, level columns and a mesh vent;
-// - graphite around it, and one accent (Discord blurple) used for state only.
+// - one continuous biomorphic channel pressed into the plate, from the nose
+//   to the module, with faint contour lines either side;
+// - obsidian and graphite around it, and one accent (Ion Blue) used for
+//   state only.
+// It follows the Y2K Universal Design Spec (v3): its palette tokens, one
+// aerodynamic primary form with one biomorphic gesture, molded elastomer as
+// the soft counter-material and smoked polymer as the one translucent detail.
 // The parts it shares with the trailer live in kit.ts.
 //
 // Motion is the module running one cycle, like hardware: READY; the key is
@@ -49,14 +55,16 @@ const HEIGHT = 400;
 const FPS = 30;
 const END = 8 * FPS; // 8 s loop
 
-const GRAPHITE = hex("#1C1E21");
-const GRAPHITE_DEEP = hex("#141517");
-const INK = hex("#E6E7E9");
-const ENGRAVE = hex("#2A2D31");
-const LCD = hex("#0E0F11");
-const ACCENT = hex("#8B95FF");
-const ACCENT_DEEP = hex("#5865F2");
-const OFF = hex("#3A3D42");
+// The spec's palette tokens.
+const OBSIDIAN = hex("#101214");
+const GRAPHITE = hex("#25292D");
+const TITANIUM = hex("#A6ABB1");
+const CHROME = hex("#D4DCE1");
+const INK = hex("#E4E1D8"); // bone
+const ENGRAVE = GRAPHITE;
+const ACCENT = hex("#65B8D6"); // Ion Blue
+const ACCENT_DEEP = hex("#3E8FAE");
+const OFF = hex("#3A3F44");
 
 const scene = new Scene(END);
 const v3 = (x: number, y: number): Vec3 => ({ x, y, z: 0 });
@@ -84,7 +92,7 @@ scene.add({
     type: "rect",
     size: constant({ width: WIDTH, height: HEIGHT }),
     cornerRadius: constant(26),
-    style: { gradientFill: linear([[0, hex("#26292D")], [0.55, GRAPHITE], [1, GRAPHITE_DEEP]], { x: 0, y: -200 }, { x: 0, y: 200 }) },
+    style: { gradientFill: linear([[0, hex("#2A2E33")], [0.5, hex("#1A1D21")], [1, OBSIDIAN]], { x: 0, y: -200 }, { x: 0, y: 200 }) },
 });
 
 // --- The plate: brushed titanium, an aerodynamic nose tapering to the right ---
@@ -103,7 +111,7 @@ scene.add({
     ...base("plate", { outTick: END, x: 0, y: 0 }),
     type: "path",
     path: constant(shape(plate)),
-    style: { gradientFill: linear([[0, hex("#D3D6DA")], [0.35, hex("#BDC1C6")], [1, hex("#8E9298")]], { x: 0, y: 48 }, { x: 0, y: 352 }), stroke: stroke(hex("#5B6066"), 1.5) },
+    style: { gradientFill: linear([[0, CHROME], [0.38, TITANIUM], [1, hex("#7F858B")]], { x: 0, y: 48 }, { x: 0, y: 352 }), stroke: stroke(hex("#4B555C"), 1.5) },
 });
 // The brushing: fine horizontal grain, light and dark, clipped to the plate.
 {
@@ -197,8 +205,29 @@ const mcpRight = engrave("name.mcp", "MCP", NAME_X, 184, 68);
 microtype("pitch.0", "ONE TOOL. RUNS YOUR CODE.", mcpRight + 30, 205, 2.6, ENGRAVE, constant(1), true);
 microtype("pitch.1", "TOKENS STAY IN THE AGENT.", mcpRight + 30, 228, 2.6, ENGRAVE, constant(1), true);
 // The taped seam: a band with a stitch line.
-scene.add({ ...base("seam.tape", { outTick: END, x: 0, y: 0 }), type: "path", path: constant(openPath({ x: 196, y: 278 }, { x: 834, y: 278 })), style: { stroke: stroke(hex("#000000"), 5, { opacity: 0.08, cap: "butt" }) } });
-scene.add({ ...base("seam.stitch", { outTick: END, x: 0, y: 0 }), type: "path", path: constant(openPath({ x: 196, y: 278 }, { x: 834, y: 278 })), style: { stroke: stroke(ENGRAVE, 1, { opacity: 0.55, dash: [5, 4], cap: "butt" }) } });
+// The channel: one continuous biomorphic groove from the nose into the
+// module, a dark cut with a lit lower lip.
+{
+    const cubic = (p0: Point, c0: Point, c1: Point, p1: Point, steps = 40): Point[] =>
+        Array.from({ length: steps + 1 }, (_, i) => {
+            const t = i / steps;
+            const u = 1 - t;
+            return {
+                x: u * u * u * p0.x + 3 * u * u * t * c0.x + 3 * u * t * t * c1.x + t * t * t * p1.x,
+                y: u * u * u * p0.y + 3 * u * u * t * c0.y + 3 * u * t * t * c1.y + t * t * t * p1.y,
+            };
+        });
+    const groove = [
+        ...cubic({ x: 70, y: 236 }, { x: 150, y: 292 }, { x: 380, y: 262 }, { x: 560, y: 276 }),
+        ...cubic({ x: 560, y: 276 }, { x: 700, y: 287 }, { x: 790, y: 286 }, { x: 866, y: 262 }).slice(1),
+    ];
+    scene.add({ ...base("channel.lip", { outTick: END, x: 0, y: 2.2 }), type: "path", path: constant(openPath(...groove)), style: { stroke: stroke(hex("#FFFFFF"), 1.6, { opacity: 0.6 }) } });
+    scene.add({ ...base("channel.cut", { outTick: END, x: 0, y: 0 }), type: "path", path: constant(openPath(...groove)), style: { stroke: stroke(ENGRAVE, 8) } });
+    // Faint contour lines either side, like the kit's aero-cutline study.
+    for (const [index, dy] of [-11, 13].entries()) {
+        scene.add({ ...base(`channel.contour-${index}`, { outTick: END, x: 0, y: dy }), type: "path", path: constant(openPath(...groove)), style: { stroke: stroke(ENGRAVE, 1, { opacity: 0.32 }) } });
+    }
+}
 microtype("model", "MODEL TX-01 / DISCORD.JS 14 / NODE 22 / 1 TOOL", NAME_X, 302, 2.2, ENGRAVE, constant(0.85), true);
 
 // --- The module: molded rubber, where the hand goes ---
@@ -225,7 +254,8 @@ scene.add({
     ...base("lcd", { outTick: END, x: 0, y: 0 }),
     type: "path",
     path: constant(shape(rounded(WIN.x, WIN.y, WIN.w, WIN.h, [10, 6, 6, 10]))),
-    style: { fill: fill(LCD), stroke: stroke(hex("#000000"), 1.5) },
+    // smoked polymer: tinted, with a little internal depth
+    style: { gradientFill: linear([[0, hex("#13191D")], [0.55, hex("#28333A")], [1, OBSIDIAN]], { x: WIN.x, y: WIN.y }, { x: WIN.x + WIN.w, y: WIN.y + WIN.h }), stroke: stroke(hex("#000000"), 1.5) },
 });
 scene.add({ ...base("lcd.lip", { outTick: END, x: 0, y: 0 }), type: "path", path: constant(openPath({ x: WIN.x + 10, y: WIN.y + WIN.h + 1 }, { x: WIN.x + WIN.w - 6, y: WIN.y + WIN.h + 1 })), style: { stroke: stroke(hex("#FFFFFF"), 1, { opacity: 0.1 }) } });
 const LCD_TEXT = { x: WIN.x + 16, y: WIN.y + 26, cell: 4.4 };
@@ -279,7 +309,7 @@ scene.add({
     style: { fill: fill(INK) },
 });
 scene.add({ ...base("key.led", { outTick: END, x: KEY.x + 24, y: KEY.y - 26 }), type: "ellipse", size: constant({ width: 7, height: 7 }), style: { fill: fill(OFF), stroke: stroke(hex("#000000"), 1, { opacity: 0.5 }) } });
-scene.add({ ...base("key.led.glow", { outTick: END, x: KEY.x + 24, y: KEY.y - 26, opacity: between("key.led.on", PRESS + 1, RESET) }), type: "ellipse", size: constant({ width: 18, height: 18 }), style: { gradientFill: radial([[0, ACCENT], [0.32, ACCENT], [0.4, hex("#8B95FF66")], [1, hex("#8B95FF00")]], 9) } });
+scene.add({ ...base("key.led.glow", { outTick: END, x: KEY.x + 24, y: KEY.y - 26, opacity: between("key.led.on", PRESS + 1, RESET) }), type: "ellipse", size: constant({ width: 18, height: 18 }), style: { gradientFill: radial([[0, ACCENT], [0.32, ACCENT], [0.4, hex("#65B8D666")], [1, hex("#65B8D600")]], 9) } });
 
 // The level columns: dark, lighting in a moving pattern while it runs.
 const LEVELS = 7;
@@ -316,7 +346,7 @@ const document = withComputedRevision({
     version: ANIMATION_DOCUMENT_VERSION,
     id: "discord-mcp-banner",
     name: "discord-mcp README banner",
-    canvas: { width: WIDTH, height: HEIGHT, pixelAspectRatio: 1, backgroundColor: GRAPHITE },
+    canvas: { width: WIDTH, height: HEIGHT, pixelAspectRatio: 1, backgroundColor: OBSIDIAN },
     timing: {
         ticksPerSecond: FPS,
         frameRate: { numerator: FPS, denominator: 1 },
