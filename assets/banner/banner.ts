@@ -13,7 +13,7 @@
 // - a molded-rubber control module where the hand goes: a pixel LCD, a
 //   pebble key with a status light, level columns and a mesh vent;
 // - one continuous biomorphic channel pressed into the plate, from the nose
-//   to the module;
+//   to the module, with faint contour lines either side;
 // - obsidian and graphite around it, and one accent (Ion Blue) used for
 //   state only.
 // It follows the Y2K Universal Design Spec (v3): its palette tokens, one
@@ -223,6 +223,10 @@ microtype("pitch.1", "TOKENS STAY IN THE AGENT.", mcpRight + 30, 228, 2.6, ENGRA
     ];
     scene.add({ ...base("channel.lip", { outTick: END, x: 0, y: 2.2 }), type: "path", path: constant(openPath(...groove)), style: { stroke: stroke(hex("#FFFFFF"), 1.6, { opacity: 0.6 }) } });
     scene.add({ ...base("channel.cut", { outTick: END, x: 0, y: 0 }), type: "path", path: constant(openPath(...groove)), style: { stroke: stroke(ENGRAVE, 8) } });
+    // Faint contour lines either side, like the kit's aero-cutline study.
+    for (const [index, dy] of [-11, 13].entries()) {
+        scene.add({ ...base(`channel.contour-${index}`, { outTick: END, x: 0, y: dy }), type: "path", path: constant(openPath(...groove)), style: { stroke: stroke(ENGRAVE, 1, { opacity: 0.32 }) } });
+    }
 }
 microtype("model", "MODEL TX-01 / DISCORD.JS 14 / NODE 22 / 1 TOOL", NAME_X, 302, 2.2, ENGRAVE, constant(0.85), true);
 

@@ -41,16 +41,20 @@
     --mono: "IBM Plex Mono", "Space Mono", ui-monospace, Menlo, monospace;
     --micro-t: 160ms;           /* motion tokens */
     --panel-t: 320ms;
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    --shell-radius: 34% 66% 63% 37% / 43% 38% 62% 57%;
   }
   * { box-sizing: border-box; }
   html { background: var(--obsidian); }
   body {
     margin: 0;
     min-height: 100vh;
+    display: flow-root;
     color: var(--ink);
     font: 400 16px/1.5 var(--body);
     /* Graphite: a matte base with a faint micro-grid and a soft falloff. */
     background:
+      linear-gradient(90deg, rgb(212 220 225 / 0.035) 1px, transparent 1px) 0 0 / 100px 100px,
       radial-gradient(rgb(255 255 255 / 0.025) 1px, transparent 1.5px) 0 0 / 3px 3px,
       radial-gradient(120% 80% at 30% 0%, #2A2E33, #1A1D21 50%, var(--obsidian));
   }
@@ -58,7 +62,7 @@
   .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
   main {
-    width: min(1180px, 100% - 32px, max(600px, (100vh - 330px) * 16 / 9 + 120px));
+    width: min(1180px, 100% - 32px, max(600px, (100vh - 390px) * 16 / 9 + 120px));
     margin: 28px auto 40px;
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -72,6 +76,10 @@
   .status i { width: 8px; height: 8px; border-radius: 50%; background: var(--rubber-hi); box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.5); transition: background var(--micro-t), box-shadow var(--micro-t); }
   .status.on { color: var(--accent); }
   .status.on i { background: var(--accent); box-shadow: 0 0 6px rgb(var(--accent-rgb) / 0.6); }
+  .chips { display: inline-flex; gap: 8px; margin-left: 12px; vertical-align: middle; }
+  .chip { border: 1px solid #75828B; border-radius: 99px; padding: 4px 10px; font: 500 11px/1.2 var(--mono); letter-spacing: 0.08em; color: var(--ti-light); }
+  .skip { position: absolute; left: -10000px; top: auto; }
+  .skip:focus { left: 12px; top: 12px; z-index: 5; padding: 12px; background: var(--ink); color: var(--obsidian); font: 600 14px/1 var(--label); }
   .model h1 {
     margin: 14px 0 0;
     font: 400 clamp(24px, 3.6vw, 40px)/1.1 var(--display);
@@ -86,9 +94,10 @@
     position: relative;
     padding: 18px 22px 16px 18px;
     border-radius: 46px 16px 16px 46px / 46px 16px 16px 46px;
+    /* the design kit's brushed-titanium texture, shaded top to bottom */
     background:
-      repeating-linear-gradient(90deg, rgb(255 255 255 / 0.05) 0 1px, transparent 1px 3px, rgb(0 0 0 / 0.04) 3px 4px),
-      repeating-linear-gradient(90deg, transparent 0 7px, rgb(255 255 255 / 0.035) 7px 8px, transparent 8px 13px),
+      linear-gradient(180deg, rgb(255 255 255 / 0.32), rgb(255 255 255 / 0) 38%, rgb(0 0 0 / 0.26)),
+      url("titanium.jpg") 0 0 / 512px 512px,
       linear-gradient(180deg, var(--ti-light), var(--ti) 38%, var(--ti-dark));
     box-shadow:
       inset 0 1px 0 rgb(255 255 255 / 0.7),
@@ -149,19 +158,19 @@
     padding: 0;
     cursor: pointer;
     background: none;
-    transition: opacity var(--micro-t), transform var(--micro-t) cubic-bezier(0.3, 0, 0.2, 1);
+    transition: opacity var(--micro-t), transform var(--micro-t) var(--ease);
   }
   .pod .bezel {
     position: absolute;
     inset: 0;
-    border-radius: 58% 42% 52% 48% / 46% 54% 46% 54%;
+    border-radius: var(--shell-radius);
     background: linear-gradient(180deg, var(--ti-light), var(--ti-dark));
     box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.8), 0 10px 24px rgb(0 0 0 / 0.55);
   }
   .pod .face {
     position: absolute;
     inset: 9px 11px;
-    border-radius: 58% 42% 52% 48% / 46% 54% 46% 54%;
+    border-radius: var(--shell-radius);
     background: linear-gradient(#3A3D40, var(--rubber));
     box-shadow: inset 0 2px 3px rgb(255 255 255 / 0.1), inset 0 -4px 8px rgb(0 0 0 / 0.5);
     display: grid;
@@ -181,7 +190,7 @@
   .pod .bezel::before { top: 14%; left: 14%; }
   .pod .bezel::after { bottom: 14%; right: 14%; }
   .pod:active .face { transform: translateY(2px); box-shadow: inset 0 3px 6px rgb(0 0 0 / 0.55); }
-  .pod:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; border-radius: 40%; }
+  .pod:focus-visible { outline: 3px solid var(--accent); outline-offset: 6px; border-radius: 40%; }
   .cue {
     position: absolute;
     left: 0;
@@ -202,6 +211,7 @@
   .channel-groove path { fill: none; vector-effect: non-scaling-stroke; }
   .channel-groove .cut { stroke: var(--graphite); stroke-width: 7; stroke-linecap: round; }
   .channel-groove .lip { stroke: rgb(255 255 255 / 0.55); stroke-width: 1.5; stroke-linecap: round; }
+  .channel-groove .contour { stroke: rgb(37 41 45 / 0.35); stroke-width: 1; }
 
   /* --- The deck: molded rubber, where the hands go --- */
   .deck {
@@ -226,11 +236,11 @@
     box-shadow: inset 0 1px 1px rgb(255 255 255 / 0.12), inset 0 -2px 4px rgb(0 0 0 / 0.5), 0 2px 0 #121315, 0 0 0 1px #15171A;
     display: grid;
     place-items: center;
-    transition: transform var(--micro-t) cubic-bezier(0.3, 0, 0.2, 1), box-shadow var(--micro-t);
+    transition: transform var(--micro-t) var(--ease), box-shadow var(--micro-t);
   }
   .key svg { width: 18px; height: 18px; fill: var(--ink); }
   .key:active { transform: translateY(2px); box-shadow: inset 0 2px 5px rgb(0 0 0 / 0.6), 0 0 0 #121315, 0 0 0 1px #15171A; }
-  .key:focus-visible, .scrub input:focus-visible + .channel, .level input:focus-visible ~ .pills { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .key:focus-visible, .scrub input:focus-visible + .channel, .level input:focus-visible ~ .pills { outline: 3px solid var(--accent); outline-offset: 3px; }
   /* The play key's status light. */
   .led { position: absolute; top: 7px; right: 8px; width: 5px; height: 5px; border-radius: 50%; background: #3A3D42; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.5); }
   .is-playing .led { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
@@ -316,6 +326,28 @@
   .pills i.on { background: linear-gradient(var(--accent), var(--accent-deep)); box-shadow: 0 0 4px rgb(var(--accent-rgb) / 0.4); }
   .level input { position: absolute; inset: 0 0 0 40px; width: calc(100% - 40px); margin: 0; opacity: 0; cursor: pointer; }
 
+  /* --- The action area: one high-contrast primary, one outline --- */
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; }
+  .action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 10px 20px;
+    border: 2px solid transparent;
+    border-radius: 10px 6px 6px 10px;
+    font: 600 13px/1 var(--label);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    text-decoration: none;
+    cursor: pointer;
+    transition: transform var(--micro-t) var(--ease), filter var(--micro-t) var(--ease);
+  }
+  .action.primary { background: var(--ti-light); color: var(--obsidian); }
+  .action.outline { border-color: var(--ti); color: var(--ink); }
+  .action:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+
   /* --- The sewn-in spec tag: the spec sheet and the controls, as a hang tag --- */
   .tag {
     position: relative;
@@ -371,13 +403,11 @@
     background: repeating-linear-gradient(90deg, var(--ink) 0 1px, transparent 1px 3px, var(--ink) 3px 5px, transparent 5px 6px, var(--ink) 6px 7px, transparent 7px 10px, var(--ink) 10px 13px, transparent 13px 14px);
     opacity: 0.75;
   }
-  .tag a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--seam); }
-  .tag a:hover { border-bottom-color: var(--accent); }
-  .tag a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
   @media (max-width: 760px) {
     main { width: calc(100% - 24px); margin-top: 18px; }
+    .chips { display: none; }
     .housing { padding: 12px 12px 12px 12px; border-radius: 30px 12px 12px 30px / 30px 12px 12px 30px; }
     .gasket { padding: 6px; border-radius: 24px 8px 8px 24px / 24px 8px 8px 24px; }
     .screen { border-radius: 19px 4px 4px 19px / 19px 4px 4px 19px; }
@@ -401,6 +431,7 @@
   }
   @media (hover: hover) {
     .key:hover svg { fill: #FFFFFF; }
+    .action:hover { transform: translateY(-2px); filter: brightness(1.08); }
     .pod:hover .face { box-shadow: inset 0 2px 3px rgb(255 255 255 / 0.14), inset 0 -4px 8px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(var(--accent-rgb) / 0.5); }
   }
   @media (prefers-reduced-motion: reduce) {
@@ -417,17 +448,18 @@
 </style>
 </head>
 <body>
+<a class="skip" href="#player">Skip to the player</a>
 <main>
   <header class="model">
     <div class="sysbar">
-      <span class="micro">System / TX-01 · discord-mcp</span>
+      <span><span class="micro">System / TX-01 · discord-mcp</span><span class="chips" aria-hidden="true"><span class="chip">25 S</span><span class="chip">1080P · STEREO</span></span></span>
       <span class="status" id="status" role="status"><i aria-hidden="true"></i><span id="status-text">Ready</span></span>
     </div>
     <h1>DISCORD MCP <span>TEASER</span></h1>
     <p>One tool. Your code. The live Discord API.</p>
   </header>
 
-  <section class="housing" aria-label="Teaser player">
+  <section class="housing" id="player" aria-label="Teaser player" tabindex="-1">
     <span class="screw tl" aria-hidden="true"></span><span class="screw bl" aria-hidden="true"></span>
     <span class="screw tr" aria-hidden="true"></span><span class="screw br" aria-hidden="true"></span>
 
@@ -446,6 +478,8 @@
     </div>
 
     <svg class="channel-groove" viewBox="0 0 1000 26" preserveAspectRatio="none" aria-hidden="true">
+      <path class="contour" d="M6 6 C 170 -6, 330 16, 520 5 S 850 -4, 994 4"/>
+      <path class="contour" d="M6 22 C 170 10, 330 32, 520 21 S 850 12, 994 20"/>
       <path class="lip" d="M6 16 C 170 4, 330 26, 520 15 S 850 6, 994 14"/>
       <path class="cut" d="M6 13 C 170 1, 330 23, 520 12 S 850 3, 994 11"/>
     </svg>
@@ -478,6 +512,11 @@
     </div>
   </section>
 
+  <nav class="actions" aria-label="Links">
+    <a class="action primary" href="https://github.com/drvova/discord-mcp">Source on GitHub <span aria-hidden="true">↗</span></a>
+    <a class="action outline" href="trailer.mp4" download>Download MP4</a>
+  </nav>
+
   <aside class="tag" aria-label="Spec">
     <dl>
       <dt>Model</dt><dd>TX-01 teaser</dd>
@@ -493,8 +532,7 @@
     </dl>
     <div class="out">
       <div class="barcode" aria-hidden="true"></div>
-      <a class="micro" href="https://github.com/drvova/discord-mcp">Source ↗</a>
-      <a class="micro" href="trailer.mp4" download>Download MP4</a>
+      <span class="micro">TX-01 / 2026.10</span>
     </div>
   </aside>
 </main>
