@@ -10,8 +10,11 @@
 //   like an aerofoil or a race-car body;
 // - offset geometry: two sculpted blades that answer each other without
 //   mirroring, the wordmark set off-centre;
-// - exposed structure: veins along each blade and machined rivets, the
-//   organic-mechanical look;
+// - exposed structure: veins along each blade, machined rivets, hex bolts
+//   that turn, and a bolted hinge where the blades meet, the
+//   organic-mechanical look of the era's metal frames;
+// - machined surfaces: a chamfered plate with a bevel and an engraved line,
+//   and a chrome wordmark with a dark horizon band under its highlight;
 // - restraint: matte black and titanium, with one small accent.
 // Callouts wrap the function in the art: each points at a part and names
 // what the project does.
@@ -170,12 +173,41 @@ function blade(id: string, samples: Sample[], rootWidth: number, start: number, 
 
 // --- The surface ---
 
+// A machined plate, not a rounded card: chamfers on two opposite corners
+// (offset, not symmetric), a bevel catching light along the top and left,
+// and an engraved inner line.
+const chamfered = (inset: number, big: number, small: number): Point[] => {
+    const [l, t, r, b] = [inset, inset, WIDTH - inset, HEIGHT - inset];
+    return [
+        { x: l + big, y: t }, { x: r - small, y: t }, { x: r, y: t + small },
+        { x: r, y: b - big }, { x: r - big, y: b }, { x: l + small, y: b },
+        { x: l, y: b - small }, { x: l, y: t + big },
+    ];
+};
+const plate = chamfered(0, 44, 10);
 add({
-    ...base("card", { outTick: END, x: WIDTH / 2, y: HEIGHT / 2 }),
-    type: "rect",
-    size: constant({ width: WIDTH, height: HEIGHT }),
-    cornerRadius: constant(28),
+    ...base("card", { outTick: END, x: 0, y: 0 }),
+    type: "path",
+    path: constant<PathData>({ contours: [{ closed: true, vertices: plate.map(vertex) }] }),
     style: { fill: fill(MATTE) },
+});
+add({
+    ...base("bevel.light", { outTick: END, x: 0, y: 0 }),
+    type: "path",
+    path: constant<PathData>({ contours: [open([plate[6], plate[7], plate[0], plate[1]].map((p) => ({ x: p.x + (p.x === 0 ? 1 : 0), y: p.y + (p.y === 0 ? 1 : 0) })))] }),
+    style: { stroke: stroke(WHITE, 1.5, { opacity: 0.18, cap: "butt" }) },
+});
+add({
+    ...base("bevel.dark", { outTick: END, x: 0, y: 0 }),
+    type: "path",
+    path: constant<PathData>({ contours: [open([plate[2], plate[3], plate[4], plate[5]].map((p) => ({ x: p.x - (p.x === WIDTH ? 1 : 0), y: p.y - (p.y === HEIGHT ? 1 : 0) })))] }),
+    style: { stroke: stroke(GUNMETAL, 1.5, { opacity: 0.6, cap: "butt" }) },
+});
+add({
+    ...base("engraving", { outTick: END, x: 0, y: 0 }),
+    type: "path",
+    path: constant<PathData>({ contours: [{ closed: true, vertices: chamfered(14, 38, 6).map(vertex) }] }),
+    style: { stroke: stroke(GUNMETAL, 1, { opacity: 0.45 }) },
 });
 // A faint technical grid, barely there.
 const grid: PathContour[] = [];
@@ -194,10 +226,51 @@ add({
 
 // Blade A sweeps along the bottom and curls up at the right; blade B hangs
 // from the top right and tucks in. Offset, never mirrored.
-const sweepA = spiral(30, 372, 3, 1060, -55);
-const sweepB = spiral(1262, 30, 182, 560, -95);
+const sweepA = spiral(-4, 366, 3, 1094, -55);
+// Blade B is cut where it meets blade A, so its tip lands on the hinge.
+const fullB = spiral(1284, 30, 182, 562, -95, 562);
+const landing = fullB.findIndex(({ point }) => sweepA.some((a) => Math.hypot(a.point.x - point.x, a.point.y - point.y) < 4) && point.y > 150);
+const sweepB = fullB.slice(0, landing + 1).filter((_, i, all) => i % 5 === 0 || i === all.length - 1).map((sample, i, all) => ({ ...sample, s: i / (all.length - 1) }));
 const bladeA = blade("blade-a", sweepA, 46, 4, [0.22, 0.5, 0.74]);
 blade("blade-b", sweepB, 30, 22, [0.3, 0.62]);
+const tipB = sweepB[sweepB.length - 1].point;
+
+// Exposed hardware: machined hex bolts that turn one hex step (60°) per loop,
+// which looks the same at both ends, so the loop stays seamless.
+const titanium = (radius: number): GradientFillStyle =>
+    linear([[0, WHITE], [0.45, hex("#7C8597")], [0.55, hex("#4A5162")], [1, hex("#E9EDF4")]], { x: 0, y: -radius }, { x: 0, y: radius });
+const hexagon = (radius: number, offset: number) => ({
+    type: "polystar" as const,
+    variant: "polygon" as const,
+    points: constant(6),
+    innerRadius: constant(0),
+    outerRadius: constant(radius),
+    innerRoundness: constant(0),
+    outerRoundness: constant(0),
+    rotationOffset: constant(offset),
+});
+const bolt = (id: string, x: number, y: number, radius: number) => {
+    const turn = keyed<Vec3>(`${id}.turn`, [[0, { x: 0, y: 0, z: 0 }, "linear"], [END, { x: 0, y: 0, z: 60 }]]);
+    add({ ...base(id, { outTick: END, x, y, rotation: turn }), ...hexagon(radius, 0), style: { gradientFill: titanium(radius), stroke: stroke(SHADOW, 1.5) } });
+    add({ ...base(`${id}.socket`, { outTick: END, x, y, rotation: keyed<Vec3>(`${id}.socket.turn`, [[0, { x: 0, y: 0, z: 0 }, "linear"], [END, { x: 0, y: 0, z: 60 }]]) }), ...hexagon(radius * 0.42, 30), style: { fill: fill(SHADOW) } });
+};
+bolt("bolt.top-left", 54, 46, 9);
+bolt("bolt.bottom-right", 1226, 354, 9);
+
+// The hinge: where blade B lands on blade A, a machined plate along A's
+// tangent, held by a bolt. Structure left in plain sight.
+const nearest = sweepA.reduce((best, sample) =>
+    Math.hypot(sample.point.x - tipB.x, sample.point.y - tipB.y) < Math.hypot(best.point.x - tipB.x, best.point.y - tipB.y) ? sample : best);
+const hinge = nearest.point;
+const hingeAngle = Math.atan2(nearest.normal.x, -nearest.normal.y) * (180 / Math.PI);
+add({
+    ...base("hinge.plate", { outTick: END, x: hinge.x, y: hinge.y, rotation: hingeAngle }),
+    type: "rect",
+    size: constant({ width: 44, height: 20 }),
+    cornerRadius: constant(10),
+    style: { gradientFill: titanium(10), stroke: stroke(SHADOW, 1.5) },
+});
+bolt("hinge.bolt", hinge.x, hinge.y, 6.5);
 
 // The glint: a blurple-cored highlight that rides blade A's edge from root
 // to tip, twice a loop, hidden at the loop point.
@@ -224,9 +297,9 @@ add({
 
 // --- The wordmark: wide, slanted titanium, set off-centre ---
 
-const WORD_X = 560;
+const WORD_X = 450;
 const WORD_Y = 170;
-const word = monolineWordmark("DISCORD MCP", { capHeight: 74, polyline: true });
+const word = monolineWordmark("DISCORD MCP", { capHeight: 66, polyline: true });
 word.letters.forEach((letter, index) => {
     if (letter.contours.length === 0) {
         return;
@@ -237,13 +310,15 @@ word.letters.forEach((letter, index) => {
     const layers: Array<[string, Color, number, number]> = [
         ["shadow", SHADOW, word.stroke + 6, 5],
         ["body", TITANIUM, word.stroke, 0],
+        // Chrome reads as a horizon: a dark band under the bright line.
+        ["horizon", GUNMETAL, word.stroke * 0.22, word.stroke * 0.22],
         // Restraint: the accent is only the specular line on "MCP".
         ["highlight", isMcp ? ACCENT_LIGHT : WHITE, word.stroke * 0.3, -word.stroke * 0.2],
     ];
     for (const [layer, color, width, offset] of layers) {
         const id = `word.${index}.${layer}`;
         add({
-            ...base(id, { outTick: END, x: WORD_X, y: WORD_Y + offset, skew: constant({ x: -10, y: 0 }), scale: { x: 1.16, y: 1 } }),
+            ...base(id, { outTick: END, x: WORD_X, y: WORD_Y + offset, skew: constant({ x: -10, y: 0 }), scale: { x: 1.1, y: 1 } }),
             type: "path",
             path,
             style: { stroke: stroke(color, width, { opacity: fading(`${id}.opacity`, start) }) },
@@ -287,8 +362,7 @@ const rivet = (bladeId: string, index: number) => {
 const r0 = rivet("blade-a", 0);
 callout("callout.tool", [{ x: 214, y: 112 }, { x: 214, y: 56 }, { x: 240, y: 56 }], 74, "ONE TOOL. RUNS YOUR CODE.", "left", TITANIUM);
 callout("callout.agent", [{ x: r0.x, y: r0.y }, { x: r0.x + 40, y: r0.y - 52 }, { x: r0.x + 72, y: r0.y - 52 }], 92, "TOKENS STAY IN THE AGENT.", "left", ACCENT_LIGHT);
-const tipB = sweepB[sweepB.length - 1].point;
-callout("callout.kept", [{ x: tipB.x, y: tipB.y }, { x: tipB.x + 40, y: tipB.y + 46 }, { x: tipB.x + 72, y: tipB.y + 46 }], 110, "HELPERS KEPT ACROSS RESTARTS.", "left", TITANIUM);
+callout("callout.kept", [{ x: hinge.x, y: hinge.y }, { x: hinge.x + 40, y: hinge.y + 40 }, { x: hinge.x + 72, y: hinge.y + 40 }], 110, "HELPERS KEPT ACROSS RESTARTS.", "left", TITANIUM);
 
 const document = withComputedRevision({
     version: ANIMATION_DOCUMENT_VERSION,
