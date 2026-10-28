@@ -1,6 +1,6 @@
 name: Pages
 
-# Publishes the trailer's player page (site/) with the video and the banner.
+# Publishes the trailer's player page (site/) with the video.
 # Needs Pages turned on once: Settings -> Pages -> Source: GitHub Actions.
 
 on:
@@ -9,7 +9,6 @@ on:
     paths:
       - 'site/**'
       - 'assets/video/**'
-      - 'assets/img/banner.svg'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -33,7 +32,7 @@ jobs:
       run: |
         mkdir _site
         cp site/* _site/
-        cp assets/video/trailer.webm assets/video/trailer.mp4 assets/img/banner.svg _site/
+        cp assets/video/trailer.webm assets/video/trailer.mp4 _site/
 
     - uses: actions/upload-pages-artifact@v3
       with:

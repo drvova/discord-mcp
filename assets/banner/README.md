@@ -10,7 +10,7 @@ npx clayzo login            # once per machine; rendering needs a Clayzo account
 npx clayzo export banner.json ../img/banner.svg --format svg
 ```
 
-The trailer (`trailer.ts`, 25 s at 1920×1080) is exported three ways. GitHub won't play a video in a README, so the README shows a silent, looping SVG of it with a chrome play badge (`--preview`), linked to a player page. The page ([`site/`](../../site), published to GitHub Pages by `.github/workflows/pages.yml`) has a custom chrome player that plays the video with sound: a WebM (VP9/Opus), with the MP4 (H.264/AAC) as the fallback. `trailer-audio.py` synthesises the soundtrack (Python 3 with NumPy, no samples), and ffmpeg muxes it in:
+The trailer (`trailer.ts`, 25 s at 1920×1080) is exported three ways. GitHub won't play a video in a README, so the README shows a silent, looping SVG of it with a chrome play badge (`--preview`), linked to a player page. The page ([`site/`](../../site), published to GitHub Pages by `.github/workflows/pages.yml`) is a custom player built like a piece of late-90s / early-2000s kit (a brushed-titanium plate, molded-rubber controls, a mesh grille, an LCD readout and a sewn-in spec tag) that plays the video with sound: a WebM (VP9/Opus), with the MP4 (H.264/AAC) as the fallback. `trailer-audio.py` synthesises the soundtrack (Python 3 with NumPy, no samples), and ffmpeg muxes it in:
 
 ```bash
 node trailer.ts --preview && npx clayzo export trailer-preview.json ../img/trailer.svg --format svg   # the README preview
