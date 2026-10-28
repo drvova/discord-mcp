@@ -222,9 +222,14 @@ export const emblem = (scene: Scene, id: string, passes: Pass[], boltTurn?: Anim
 // --- The lettering: wide, italic, sharp-edged block letters ---
 
 // Letters on a cap-height grid: t is the stroke, c the chamfer.
-export const glyph = (letter: string, H: number): { width: number; path: PathData } => {
-    const t = H * 0.25;
-    const c = H * 0.2;
+// `cut` sets the stroke weight and chamfer as fractions of the cap height:
+// the trailer's heavy chrome cut is the default; the banner uses a lighter,
+// near-square industrial cut.
+export type Cut = { weight: number; chamfer: number };
+export const HEAVY: Cut = { weight: 0.25, chamfer: 0.2 };
+export const glyph = (letter: string, H: number, cut: Cut = HEAVY): { width: number; path: PathData } => {
+    const t = H * cut.weight;
+    const c = H * cut.chamfer;
     const ci = c * 0.5;
     const b = H * 0.56;
     // The middle bar of E, F, G, H, S.

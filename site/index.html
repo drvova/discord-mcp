@@ -8,258 +8,509 @@
 <meta property="og:title" content="discord-mcp teaser">
 <meta property="og:description" content="One tool. Your code. The live Discord API.">
 <meta property="og:image" content="poster.jpg">
-<meta name="theme-color" content="#050608">
+<meta name="theme-color" content="#1C1E21">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Michroma&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@125,600;125,700&family=Barlow+Semi+Condensed:wght@500;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
 <style>
-  /* The player page for the README's trailer, in the banner's style: liquid
-     chrome, a steel bunker, one blurple accent. Assembled with the video by
+  /* The trailer's player, built like a piece of late-90s / early-2000s kit:
+     a graphite chassis, one brushed-titanium plate, molded rubber wherever a
+     hand goes, mesh only where sound comes out, and a sewn-in spec tag.
+     One accent, used for state only. Assembled with the video by
      .github/workflows/pages.yml. */
   :root {
-    --black: #050608;
-    --steel-light: #2A2F39;
-    --steel: #1A1D24;
-    --steel-dark: #101217;
-    --groove: #3C4250;
-    --micro: #9AA3B5;
-    --accent: #5865F2;
-    --accent-light: #A9B1FF;
-    --chrome: linear-gradient(180deg, #FFFFFF 0%, #E4E9F1 18%, #8C95A6 44%, #14171D 50%, #3B4250 56%, #B8C1CF 80%, #F4F7FB 100%);
-    --blurple-chrome: linear-gradient(180deg, #FFFFFF 0%, #D8DCFF 18%, #7C86F7 44%, #14163A 50%, #3A43B8 56%, #A9B1FF 80%, #EEF0FF 100%);
-    --cut: 22px;
-    --label: "Michroma", "Eurostile", ui-sans-serif, system-ui, sans-serif;
+    --graphite: #1C1E21;
+    --graphite-deep: #141517;
+    --rubber: #2A2D31;
+    --rubber-hi: #3A3D42;
+    --ti-dark: #8E9298;
+    --ti: #B9BCC2;
+    --ti-light: #C4C7CC;
+    --ink: #E6E7E9;
+    --ink-dim: #8A8F96;
+    --lcd: #0E0F11;
+    --accent: #8B95FF;          /* the one accent: state only (play, progress, level, focus) */
+    --accent-deep: #5865F2;
+    --seam: #4A4E54;
+    --label: "Barlow Semi Condensed", "DIN Alternate", "Helvetica Neue", Arial, sans-serif;
+    --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   }
   * { box-sizing: border-box; }
-  html { background: var(--black); }
+  html { background: var(--graphite); }
   body {
     margin: 0;
     min-height: 100vh;
-    color: #E4E9F1;
-    font-family: var(--label);
-    /* Steel plate with a faint galvanised sheen. */
+    color: var(--ink);
+    font: 500 16px/1.4 var(--label);
+    /* Graphite: a matte base with a faint micro-grid and a soft falloff. */
     background:
-      repeating-linear-gradient(105deg, transparent 0 220px, rgba(255, 255, 255, 0.018) 220px 380px, transparent 380px 640px),
-      linear-gradient(180deg, var(--steel-light), var(--steel) 35%, var(--steel-dark));
-    display: flex;
-    flex-direction: column;
-    align-items: center;
+      radial-gradient(rgb(255 255 255 / 0.025) 1px, transparent 1.5px) 0 0 / 3px 3px,
+      radial-gradient(120% 80% at 30% 0%, #26292D, var(--graphite) 55%, var(--graphite-deep));
   }
-  /* Riveted bands across the top and bottom, with grooved seams. */
-  .band {
-    width: 100%;
-    height: 46px;
-    flex: none;
-    background:
-      radial-gradient(circle at 46% 40%, #5B6373 0 1.5px, #262A33 3.5px, var(--black) 6px, transparent 7px) 0 50% / 80px 46px repeat-x,
-      linear-gradient(180deg, var(--steel-light), var(--steel));
-  }
-  .band.top { border-bottom: 4px solid var(--black); box-shadow: 0 2.5px 0 var(--groove); }
-  .band.bottom { border-top: 4px solid var(--black); box-shadow: inset 0 2.5px 0 var(--groove); margin-top: auto; }
-  /* Sized so the whole player (header, video, controls) fits the screen. */
-  main {
-    width: min(1280px, 100% - 32px, max(560px, (100vh - 430px) * 16 / 9));
-    margin: 24px auto 32px;
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-  }
-  header img { width: min(560px, 100%); display: block; margin: 0 auto; }
+  .micro { font: 600 11px/1.2 var(--label); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-dim); }
+  .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
-  /* The frame: a chamfered chrome bezel around the video. */
-  .bezel {
-    padding: 5px;
-    background: var(--chrome);
-    clip-path: polygon(var(--cut) 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, var(--cut) 100%, 0 calc(100% - var(--cut)), 0 var(--cut));
-    filter: drop-shadow(8px 10px 0 rgba(0, 0, 0, 0.6));
+  main {
+    width: min(1180px, 100% - 32px, max(600px, (100vh - 330px) * 16 / 9 + 120px));
+    margin: 28px auto 40px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 22px;
+  }
+
+  /* --- Header: a model plate, typographic, no chrome --- */
+  .model { display: flex; justify-content: space-between; align-items: end; gap: 16px; flex-wrap: wrap; }
+  .model h1 {
+    margin: 4px 0 0;
+    font: 700 clamp(28px, 4.2vw, 46px)/1 var(--display);
+    font-stretch: 125%;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+  }
+  .model h1 span { color: var(--ink-dim); font-weight: 600; }
+  .model p { margin: 6px 0 0; color: var(--ink-dim); font-size: 17px; }
+  .model .code { text-align: right; }
+
+  /* --- The housing: one brushed-titanium plate, blunt at the left, tapering right --- */
+  .housing {
+    position: relative;
+    padding: 18px 22px 16px 18px;
+    border-radius: 46px 16px 16px 46px / 46px 16px 16px 46px;
+    background:
+      repeating-linear-gradient(90deg, rgb(255 255 255 / 0.05) 0 1px, transparent 1px 3px, rgb(0 0 0 / 0.04) 3px 4px),
+      repeating-linear-gradient(90deg, transparent 0 7px, rgb(255 255 255 / 0.035) 7px 8px, transparent 8px 13px),
+      linear-gradient(180deg, var(--ti-light), var(--ti) 38%, var(--ti-dark));
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.7),
+      inset 0 -1px 0 rgb(0 0 0 / 0.3),
+      0 18px 40px rgb(0 0 0 / 0.45),
+      0 2px 0 #0E0F11;
+    contain: paint;
+  }
+  /* Fasteners only where a plate would be fixed: four corners. */
+  .screw {
+    position: absolute;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #F2F3F5, #9AA0A6 60%, #6B7077);
+    box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.35), 0 1px 0 rgb(255 255 255 / 0.6);
+  }
+  .screw::after {
+    content: "";
+    position: absolute;
+    inset: 2.5px;
+    background: #3A3D42;
+    clip-path: polygon(50% 0, 62% 32%, 100% 38%, 70% 60%, 80% 100%, 50% 78%, 20% 100%, 30% 60%, 0 38%, 38% 32%);
+  }
+  .screw.tl { top: 9px; left: 30px; }
+  .screw.bl { bottom: 9px; left: 30px; }
+  .screw.tr { top: 6px; right: 9px; }
+  .screw.br { bottom: 6px; right: 9px; }
+
+  /* The video sits in a molded rubber gasket. */
+  .gasket {
+    position: relative;
+    padding: 8px;
+    border-radius: 34px 10px 10px 34px / 34px 10px 10px 34px;
+    background: linear-gradient(#45494C, var(--rubber));
+    box-shadow: inset 0 2px 3px rgb(255 255 255 / 0.08), inset 0 -3px 6px rgb(0 0 0 / 0.45), 0 0 0 1px #1C1E1F, 0 1px 0 1px rgb(255 255 255 / 0.35);
   }
   .screen {
     position: relative;
     aspect-ratio: 16 / 9;
-    background: var(--black);
-    clip-path: polygon(calc(var(--cut) - 3px) 0, calc(100% - var(--cut) + 3px) 0, 100% calc(var(--cut) - 3px), 100% calc(100% - var(--cut) + 3px), calc(100% - var(--cut) + 3px) 100%, calc(var(--cut) - 3px) 100%, 0 calc(100% - var(--cut) + 3px), 0 calc(var(--cut) - 3px));
+    overflow: hidden;
+    border-radius: 27px 5px 5px 27px / 27px 5px 5px 27px;
+    background: #000;
     cursor: pointer;
+    isolation: isolate;
   }
   video { width: 100%; height: 100%; display: block; object-fit: cover; }
 
-  /* The big play badge: a chrome ring, a dark face, a blurple chrome arrow. */
-  .badge {
+  /* The big pod: a pebble of molded rubber in a titanium bezel, a backlit glyph. */
+  .pod {
+    --size: clamp(76px, 10vw, 112px);
     position: absolute;
     inset: 0;
     margin: auto;
-    width: clamp(88px, 13vw, 168px);
-    aspect-ratio: 1;
+    width: calc(var(--size) + 22px);
+    height: calc(var(--size) + 18px);
     border: 0;
     padding: 0;
-    border-radius: 50%;
-    background: var(--chrome);
-    box-shadow: 0 0 0 3px var(--black), 8px 12px 18px rgba(0, 0, 0, 0.7);
     cursor: pointer;
-    transition: transform 160ms cubic-bezier(0.7, 0, 0.2, 1), opacity 200ms;
+    background: none;
+    transition: opacity 180ms, transform 180ms cubic-bezier(0.3, 0, 0.2, 1);
   }
-  .badge::before {
+  .pod .bezel {
+    position: absolute;
+    inset: 0;
+    border-radius: 58% 42% 52% 48% / 46% 54% 46% 54%;
+    background: linear-gradient(180deg, var(--ti-light), var(--ti-dark));
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.8), 0 10px 24px rgb(0 0 0 / 0.55);
+  }
+  .pod .face {
+    position: absolute;
+    inset: 9px 11px;
+    border-radius: 58% 42% 52% 48% / 46% 54% 46% 54%;
+    background: linear-gradient(#3A3D40, var(--rubber));
+    box-shadow: inset 0 2px 3px rgb(255 255 255 / 0.1), inset 0 -4px 8px rgb(0 0 0 / 0.5);
+    display: grid;
+    place-items: center;
+    transition: box-shadow 120ms, transform 120ms;
+  }
+  .pod svg { width: 38%; height: 38%; fill: var(--accent); margin-left: 6%; filter: drop-shadow(0 0 6px rgb(139 149 255 / 0.45)); }
+  .pod .bezel::before, .pod .bezel::after {
     content: "";
     position: absolute;
-    inset: 9%;
+    width: 7px;
+    height: 7px;
     border-radius: 50%;
-    background: linear-gradient(180deg, #1C2027, var(--black));
-    box-shadow: 0 0 0 3px var(--black);
+    background: radial-gradient(circle at 35% 30%, #F2F3F5, #7C8187);
+    box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.35);
   }
-  .badge::after {
-    content: "";
-    position: absolute;
-    inset: 30% 26% 30% 36%;
-    background: var(--blurple-chrome);
-    clip-path: polygon(0 0, 100% 50%, 0 100%);
-  }
-  .badge.replay::after {
-    inset: 30%;
-    clip-path: polygon(50% 0, 50% 18%, 18% 18%, 18% 82%, 82% 82%, 82% 50%, 100% 50%, 100% 100%, 0 100%, 0 0);
-  }
-  .badge .ring {
-    position: absolute;
-    inset: -3px;
-    border-radius: 50%;
-    border: 4px solid var(--accent-light);
-    animation: pulse 2.5s cubic-bezier(0.6, 0, 0.15, 1) infinite;
-    pointer-events: none;
-  }
-  @keyframes pulse { from { transform: scale(1); opacity: 0.7; } 66%, to { transform: scale(1.45); opacity: 0; } }
-  .badge:hover, .badge:focus-visible { transform: scale(1.06); }
-  .badge:focus-visible { outline: 3px solid var(--accent-light); outline-offset: 6px; }
-  .hint {
+  .pod .bezel::before { top: 14%; left: 14%; }
+  .pod .bezel::after { bottom: 14%; right: 14%; }
+  .pod:active .face { transform: translateY(2px); box-shadow: inset 0 3px 6px rgb(0 0 0 / 0.55); }
+  .pod:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; border-radius: 40%; }
+  .cue {
     position: absolute;
     left: 0;
     right: 0;
-    top: calc(50% + clamp(56px, 8vw, 104px));
+    top: calc(50% + clamp(54px, 6.4vw, 76px));
     text-align: center;
-    font-size: clamp(10px, 1.1vw, 14px);
-    letter-spacing: 0.3em;
-    color: rgba(255, 255, 255, 0.85);
-    text-shadow: 0 2px 0 var(--black);
+    color: var(--ink);
+    text-shadow: 0 1px 2px #000;
     pointer-events: none;
-    transition: opacity 200ms;
+    transition: opacity 180ms;
   }
-  .playing .badge, .playing .hint { opacity: 0; pointer-events: none; }
-  .playing .badge { transform: scale(0.9); }
+  .playing .pod, .playing .cue { opacity: 0; pointer-events: none; }
+  .playing .pod { transform: scale(0.94); }
 
-  /* The control bar: a machined steel strip with chrome hardware. */
-  .controls {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 12px 18px;
-    background: linear-gradient(180deg, #6A7384, #1C2027 50%, #4A5262);
-    clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 14px, 100% calc(100% - 14px), calc(100% - 14px) 100%, 14px 100%, 0 calc(100% - 14px), 0 14px);
+  /* A taped seam between the plate and the deck. */
+  .seam {
+    height: 9px;
+    margin: 12px 4px 10px 18px;
+    background: linear-gradient(transparent 3px, rgb(0 0 0 / 0.22) 3px 6px, transparent 6px);
+    border-top: 1px dashed rgb(0 0 0 / 0.28);
   }
-  .controls button {
-    flex: none;
-    width: 44px;
-    height: 44px;
+
+  /* --- The deck: molded rubber, where the hands go --- */
+  .deck {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr) auto auto auto;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 14px 10px 16px;
+    border-radius: 30px 10px 10px 30px / 30px 10px 10px 30px;
+    background: linear-gradient(#45494C, var(--rubber));
+    box-shadow: inset 0 2px 3px rgb(255 255 255 / 0.08), inset 0 -3px 6px rgb(0 0 0 / 0.45), 0 0 0 1px #1C1E1F, 0 1px 0 1px rgb(255 255 255 / 0.35);
+  }
+  .key {
+    position: relative;
+    width: 46px;
+    height: 46px;
     border: 0;
     padding: 0;
-    border-radius: 50%;
-    background: var(--chrome);
-    box-shadow: 0 0 0 2px var(--black);
+    cursor: pointer;
+    border-radius: 58% 42% 52% 48% / 46% 54% 46% 54%;
+    background: linear-gradient(#4A4E52, #2E3135);
+    box-shadow: inset 0 1px 1px rgb(255 255 255 / 0.12), inset 0 -2px 4px rgb(0 0 0 / 0.5), 0 2px 0 #121315, 0 0 0 1px #15171A;
     display: grid;
     place-items: center;
-    cursor: pointer;
+    transition: transform 90ms cubic-bezier(0.3, 0, 0.2, 1), box-shadow 90ms;
   }
-  .controls button svg { width: 34px; height: 34px; border-radius: 50%; background: linear-gradient(180deg, #1C2027, var(--black)); padding: 9px; fill: var(--accent-light); }
-  .controls button:focus-visible { outline: 3px solid var(--accent-light); outline-offset: 3px; }
-  .controls button:hover svg { fill: #FFFFFF; }
-  /* The scrubber: a dark groove, a blurple fill, a chrome hex for the thumb. */
-  .scrub { flex: 1; position: relative; height: 44px; display: flex; align-items: center; }
-  .scrub input { position: absolute; inset: 0; width: 100%; margin: 0; opacity: 0; cursor: pointer; }
-  .groove { position: relative; width: 100%; height: 10px; background: var(--black); box-shadow: inset 0 2px 0 #000, 0 1.5px 0 var(--groove); }
-  .fill { position: absolute; inset: 0 auto 0 0; width: 0; background: linear-gradient(180deg, var(--accent-light), var(--accent) 60%, #3A43B8); }
-  .thumb {
+  .key svg { width: 18px; height: 18px; fill: var(--ink); }
+  .key:active { transform: translateY(2px); box-shadow: inset 0 2px 5px rgb(0 0 0 / 0.6), 0 0 0 #121315, 0 0 0 1px #15171A; }
+  .key:focus-visible, .scrub input:focus-visible + .channel, .level input:focus-visible ~ .pills { outline: 2px solid var(--accent); outline-offset: 3px; }
+  /* The play key's status light. */
+  .led { position: absolute; top: 7px; right: 8px; width: 5px; height: 5px; border-radius: 50%; background: #3A3D42; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.5); }
+  .is-playing .led { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+
+  /* The LCD: a smoked window, mono digits, unlit segments faintly visible. */
+  .lcd { display: grid; gap: 3px; }
+  .lcd .micro { font-size: 10px; padding-left: 2px; }
+  .window {
+    position: relative;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: var(--lcd);
+    box-shadow: inset 0 2px 4px #000, 0 1px 0 rgb(255 255 255 / 0.08);
+    font: 500 15px/1 var(--mono);
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+  .window .ghost { position: absolute; inset: 6px 10px; color: rgb(230 231 233 / 0.07); }
+  .window .digits { position: relative; color: var(--ink); }
+
+  /* The scrubber: a recessed channel. Played = the accent strip; buffered = perforated. */
+  .scrub { position: relative; height: 44px; display: grid; align-content: center; gap: 4px; min-width: 0; padding: 0 15px; }
+  .channel {
+    position: relative;
+    height: 10px;
+    border-radius: 5px;
+    background: #121315;
+    box-shadow: inset 0 2px 3px #000, 0 1px 0 rgb(255 255 255 / 0.12);
+  }
+  .channel .buffered {
+    position: absolute;
+    inset: 2px auto 2px 0;
+    width: var(--b, 0%);
+    background: radial-gradient(circle, rgb(230 231 233 / 0.35) 0.8px, transparent 1.2px) 0 50% / 4px 6px;
+  }
+  .channel .played {
+    position: absolute;
+    inset: 2px auto 2px 2px;
+    width: max(0px, calc(var(--p, 0%) - 4px));
+    border-radius: 3px;
+    background: linear-gradient(var(--accent), var(--accent-deep));
+  }
+  /* The thumb: a molded pull tab, ribbed rubber with a titanium clip end. */
+  .channel .tab {
     position: absolute;
     top: 50%;
-    left: 0;
-    width: 26px;
-    height: 26px;
+    left: var(--p, 0%);
+    width: 30px;
+    height: 22px;
     translate: -50% -50%;
-    background: var(--chrome);
-    clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0 50%);
+    border-radius: 6px 11px 11px 6px;
+    background:
+      linear-gradient(90deg, var(--ti-light) 0 7px, var(--ti-dark) 7px 8px, transparent 8px),
+      repeating-linear-gradient(90deg, rgb(0 0 0 / 0.4) 0 1.5px, rgb(255 255 255 / 0.06) 1.5px 2.5px, transparent 2.5px 4.5px) 10px 0 / calc(100% - 13px) 100% no-repeat,
+      linear-gradient(#4A4E52, #2E3135);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.18), 0 2px 4px rgb(0 0 0 / 0.6), 0 0 0 1px #121315;
   }
-  .scrub:focus-within .groove { outline: 2px solid var(--accent-light); outline-offset: 6px; }
-  .time { flex: none; font-size: 13px; letter-spacing: 0.18em; color: var(--micro); text-shadow: 0 1px 0 var(--black); font-variant-numeric: tabular-nums; min-width: 12ch; text-align: center; }
+  .scrub input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; z-index: 1; }
+  .ticks { display: flex; justify-content: space-between; padding: 0 1px; }
+  .ticks span { font: 500 9px/1 var(--mono); color: var(--ink-dim); }
 
-  footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; font-size: 12px; letter-spacing: 0.24em; }
-  footer a { color: var(--accent-light); text-decoration: none; }
-  footer a:hover, footer a:focus-visible { color: #FFFFFF; text-decoration: underline; }
+  /* Volume: a row of short columns that light from the left, beside a mesh grille. */
+  .level { position: relative; display: flex; align-items: center; gap: 10px; }
+  .grille {
+    width: 30px;
+    height: 36px;
+    border-radius: 10px 4px 4px 10px;
+    --s: 5px;
+    background:
+      radial-gradient(circle, #0B0C0D 38%, transparent 42%) 0 0 / var(--s) calc(var(--s) * 0.866),
+      radial-gradient(circle, #0B0C0D 38%, transparent 42%) calc(var(--s) / 2) calc(var(--s) * 0.433) / var(--s) calc(var(--s) * 0.866),
+      linear-gradient(#3E4246, #2A2D31);
+    box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.6), 0 1px 0 rgb(255 255 255 / 0.08);
+  }
+  .pills { display: flex; align-items: end; gap: 3px; height: 30px; padding: 0 2px; border-radius: 4px; }
+  .pills i {
+    width: 6px;
+    border-radius: 3px;
+    background: #121315;
+    box-shadow: inset 0 1px 2px #000, 0 1px 0 rgb(255 255 255 / 0.08);
+  }
+  .pills i.on { background: linear-gradient(var(--accent), var(--accent-deep)); box-shadow: 0 0 4px rgb(139 149 255 / 0.4); }
+  .level input { position: absolute; inset: 0 0 0 40px; width: calc(100% - 40px); margin: 0; opacity: 0; cursor: pointer; }
+
+  /* --- The sewn-in spec tag: the spec sheet and the controls, as a hang tag --- */
+  .tag {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1.1fr 1fr auto;
+    gap: 18px 28px;
+    margin-left: 46px;
+    padding: 16px 22px 16px 34px;
+    border-radius: 6px 26px 26px 6px;
+    background: linear-gradient(#26292D, #202326);
+    box-shadow: 0 0 0 1px #121315, 0 6px 16px rgb(0 0 0 / 0.3);
+  }
+  .tag::before {
+    /* the stitch line */
+    content: "";
+    position: absolute;
+    inset: 6px;
+    border: 1px dashed var(--seam);
+    border-radius: 3px 21px 21px 3px;
+    pointer-events: none;
+  }
+  .tag::after {
+    /* the eyelet it hangs from */
+    content: "";
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    width: 10px;
+    height: 10px;
+    translate: 0 -50%;
+    border-radius: 50%;
+    background: var(--graphite-deep);
+    box-shadow: 0 0 0 2px var(--ti-dark), inset 0 1px 2px #000;
+  }
+  .tag dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; align-content: start; }
+  .tag dt { font: 600 11px/1.5 var(--label); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-dim); }
+  .tag dd { margin: 0; font: 500 13px/1.5 var(--mono); color: var(--ink); }
+  .tag kbd {
+    display: inline-block;
+    min-width: 22px;
+    padding: 1px 5px;
+    border-radius: 5px 3px 3px 5px;
+    font: 500 12px/1.4 var(--mono);
+    text-align: center;
+    color: var(--ink);
+    background: linear-gradient(#3E4246, #2A2D31);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.1), 0 1px 0 #0E0F11;
+  }
+  .tag .out { display: grid; align-content: space-between; justify-items: end; gap: 12px; }
+  .barcode {
+    width: 112px;
+    height: 30px;
+    background: repeating-linear-gradient(90deg, var(--ink) 0 1px, transparent 1px 3px, var(--ink) 3px 5px, transparent 5px 6px, var(--ink) 6px 7px, transparent 7px 10px, var(--ink) 10px 13px, transparent 13px 14px);
+    opacity: 0.75;
+  }
+  .tag a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--seam); }
+  .tag a:hover { border-bottom-color: var(--accent); }
+  .tag a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
-  @media (max-width: 600px) {
-    .controls { gap: 10px; padding: 10px 12px; }
-    .time { display: none; }
+  @media (max-width: 760px) {
+    main { width: calc(100% - 24px); margin-top: 18px; }
+    .model .code { display: none; }
+    .housing { padding: 12px 12px 12px 12px; border-radius: 30px 12px 12px 30px / 30px 12px 12px 30px; }
+    .gasket { padding: 6px; border-radius: 24px 8px 8px 24px / 24px 8px 8px 24px; }
+    .screen { border-radius: 19px 4px 4px 19px / 19px 4px 4px 19px; }
+    .screw.tl, .screw.bl { left: 18px; }
+    .deck {
+      grid-template-columns: auto minmax(0, 1fr) auto auto;
+      grid-template-areas: "scrub scrub scrub scrub" "play lcd mute full";
+      border-radius: 22px 8px 8px 22px / 22px 8px 8px 22px;
+      row-gap: 6px;
+      column-gap: 10px;
+    }
+    .deck .scrub { grid-area: scrub; }
+    #toggle { grid-area: play; }
+    .lcd { grid-area: lcd; justify-self: start; }
+    .lcd .micro { display: none; }
+    #mute { grid-area: mute; }
+    #full { grid-area: full; }
+    .level { display: none; }
+    .tag { margin-left: 0; grid-template-columns: 1fr; padding-left: 34px; }
+    .tag .out { justify-items: start; }
+  }
+  @media (hover: hover) {
+    .key:hover svg { fill: #FFFFFF; }
+    .pod:hover .face { box-shadow: inset 0 2px 3px rgb(255 255 255 / 0.14), inset 0 -4px 8px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(139 149 255 / 0.5); }
   }
   @media (prefers-reduced-motion: reduce) {
-    .badge .ring { animation: none; opacity: 0; }
-    .badge { transition: none; }
+    *, *::before, *::after { transition-duration: 0.01ms !important; }
+  }
+  @media (forced-colors: active) {
+    .housing, .gasket, .deck, .tag, .key, .pod .face, .channel, .window { border: 1px solid ButtonText; forced-color-adjust: auto; }
+    .key svg, .pod svg { fill: ButtonText; }
+    .channel .played, .pills i.on { background: Highlight; }
+    .window .ghost { display: none; }
+    .channel .tab { border: 2px solid ButtonText; background: ButtonFace; }
+    .key:focus-visible, .pod:focus-visible { outline: 2px solid Highlight; }
   }
 </style>
 </head>
 <body>
-<div class="band top" aria-hidden="true"></div>
 <main>
-  <header><img src="banner.svg" alt="discord-mcp. One tool runs your code; tokens stay in the agent."></header>
+  <header class="model">
+    <div>
+      <div class="micro">discord-mcp / teaser / tx-01</div>
+      <h1>DISCORD MCP <span>TEASER</span></h1>
+      <p>One tool. Your code. The live Discord API.</p>
+    </div>
+    <div class="code micro">00:25 runtime<br>stereo · synthesised</div>
+  </header>
 
-  <section class="bezel" aria-label="discord-mcp teaser player">
-    <div class="screen" id="screen">
-      <video id="video" preload="metadata" poster="poster.jpg" playsinline aria-label="The 25-second discord-mcp teaser">
-        <source src="trailer.webm" type="video/webm">
-        <source src="trailer.mp4" type="video/mp4">
-      </video>
-      <button class="badge" id="badge" type="button" aria-label="Play the teaser with sound"><span class="ring" aria-hidden="true"></span></button>
-      <div class="hint" id="hint" aria-hidden="true">PLAY WITH SOUND</div>
+  <section class="housing" aria-label="Teaser player">
+    <span class="screw tl" aria-hidden="true"></span><span class="screw bl" aria-hidden="true"></span>
+    <span class="screw tr" aria-hidden="true"></span><span class="screw br" aria-hidden="true"></span>
+
+    <div class="gasket">
+      <div class="screen" id="screen">
+        <video id="video" preload="metadata" poster="poster.jpg" playsinline aria-label="The 25-second discord-mcp teaser">
+          <source src="trailer.webm" type="video/webm">
+          <source src="trailer.mp4" type="video/mp4">
+        </video>
+        <button class="pod" id="pod" type="button" aria-label="Play the teaser with sound">
+          <span class="bezel" aria-hidden="true"></span>
+          <span class="face" aria-hidden="true"><svg viewBox="0 0 16 16"><path id="pod-icon" d="M4 2l10 6-10 6z"/></svg></span>
+        </button>
+        <div class="cue micro" aria-hidden="true">Play with sound</div>
+      </div>
+    </div>
+
+    <div class="seam" aria-hidden="true"></div>
+
+    <div class="deck" role="group" aria-label="Player controls">
+      <button class="key" id="toggle" type="button" aria-label="Play">
+        <span class="led" aria-hidden="true"></span>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path id="toggle-icon" d="M4 2l10 6-10 6z"/></svg>
+      </button>
+      <div class="lcd">
+        <span class="micro" aria-hidden="true">T-elapsed</span>
+        <div class="window"><span class="ghost" aria-hidden="true">88:88 / 88:88</span><span class="digits" id="time">00:00 / 00:25</span></div>
+      </div>
+      <div class="scrub" id="scrub">
+        <input id="seek" type="range" min="0" max="1000" step="1" value="0" aria-label="Seek">
+        <div class="channel" aria-hidden="true"><div class="buffered"></div><div class="played"></div><div class="tab"></div></div>
+        <div class="ticks" aria-hidden="true"><span>00</span><span>05</span><span>10</span><span>15</span><span>20</span><span>25</span></div>
+      </div>
+      <div class="level">
+        <div class="grille" aria-hidden="true"></div>
+        <div class="pills" id="pills" aria-hidden="true"></div>
+        <input id="volume" type="range" min="0" max="6" step="1" value="5" aria-label="Volume">
+      </div>
+      <button class="key" id="mute" type="button" aria-label="Mute">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path id="mute-icon" d="M2 6h3l4-3v10l-4-3H2zM10.5 5l1-1a5.5 5.5 0 010 8l-1-1a4 4 0 000-6z"/></svg>
+      </button>
+      <button class="key" id="full" type="button" aria-label="Full screen">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h5v2H4v3H2zM9 2h5v5h-2V4H9zM2 9h2v3h3v2H2zM12 9h2v5H9v-2h3z"/></svg>
+      </button>
     </div>
   </section>
 
-  <div class="controls" role="group" aria-label="Player controls">
-    <button id="toggle" type="button" aria-label="Play">
-      <svg viewBox="0 0 16 16" aria-hidden="true"><path id="toggle-icon" d="M4 2l10 6-10 6z"/></svg>
-    </button>
-    <div class="scrub">
-      <div class="groove" aria-hidden="true"><div class="fill" id="fill"></div><div class="thumb" id="thumb"></div></div>
-      <label class="sr" for="seek">Seek</label>
-      <input id="seek" type="range" min="0" max="25" step="0.01" value="0">
+  <aside class="tag" aria-label="Spec">
+    <dl>
+      <dt>Model</dt><dd>TX-01 teaser</dd>
+      <dt>Runtime</dt><dd>00:25 · 30 fps</dd>
+      <dt>Format</dt><dd>1080p · VP9/Opus · H.264/AAC</dd>
+      <dt>Audio</dt><dd>synthesised, no samples</dd>
+    </dl>
+    <dl aria-label="Controls">
+      <dt>Play</dt><dd><kbd>Space</kbd> <kbd>K</kbd></dd>
+      <dt>Seek</dt><dd><kbd>←</kbd> <kbd>→</kbd> 5 s</dd>
+      <dt>Sound</dt><dd><kbd>M</kbd> mute · <kbd>↑</kbd> <kbd>↓</kbd> level</dd>
+      <dt>Full</dt><dd><kbd>F</kbd></dd>
+    </dl>
+    <div class="out">
+      <div class="barcode" aria-hidden="true"></div>
+      <a class="micro" href="https://github.com/drvova/discord-mcp">Source ↗</a>
+      <a class="micro" href="trailer.mp4" download>Download MP4</a>
     </div>
-    <div class="time" id="time" aria-live="off">00:00 / 00:25</div>
-    <button id="mute" type="button" aria-label="Mute">
-      <svg viewBox="0 0 16 16" aria-hidden="true"><path id="mute-icon" d="M2 6h3l4-3v10l-4-3H2zM10.5 5l1-1a5.5 5.5 0 010 8l-1-1a4 4 0 000-6z"/></svg>
-    </button>
-    <button id="full" type="button" aria-label="Full screen">
-      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h5v2H4v3H2zM9 2h5v5h-2V4H9zM2 9h2v3h3v2H2zM12 9h2v5H9v-2h3z"/></svg>
-    </button>
-  </div>
-
-  <footer>
-    <a href="https://github.com/drvova/discord-mcp">&larr; BACK TO THE REPO</a>
-    <span><a href="trailer.mp4" download>DOWNLOAD MP4</a></span>
-  </footer>
+  </aside>
 </main>
-<div class="band bottom" aria-hidden="true"></div>
 
 <script>
-  const video = document.getElementById("video");
-  const screen = document.getElementById("screen");
-  const badge = document.getElementById("badge");
-  const toggle = document.getElementById("toggle");
-  const toggleIcon = document.getElementById("toggle-icon");
-  const mute = document.getElementById("mute");
-  const muteIcon = document.getElementById("mute-icon");
-  const full = document.getElementById("full");
-  const seek = document.getElementById("seek");
-  const fill = document.getElementById("fill");
-  const thumb = document.getElementById("thumb");
-  const time = document.getElementById("time");
+  const $ = (id) => document.getElementById(id);
+  const video = $("video");
+  const screen = $("screen");
+  const housing = document.querySelector(".housing");
+  const scrub = $("scrub");
+  const seek = $("seek");
+  const volume = $("volume");
+  const pills = $("pills");
 
   const PLAY = "M4 2l10 6-10 6z";
   const PAUSE = "M3 2h4v12H3zM9 2h4v12H9z";
+  const REPLAY = "M8 3V0L4 4l4 4V5a3 3 0 11-3 3H3a5 5 0 105-5z";
   const SOUND = "M2 6h3l4-3v10l-4-3H2zM10.5 5l1-1a5.5 5.5 0 010 8l-1-1a4 4 0 000-6z";
   const MUTED = "M2 6h3l4-3v10l-4-3H2zM10 6l1-1 1.5 1.5L14 5l1 1-1.5 1.5L15 9l-1 1-1.5-1.5L11 10l-1-1 1.5-1.5z";
+  const LEVELS = 6;
+
+  // The level columns, rising like a meter.
+  for (let i = 0; i < LEVELS; i += 1) {
+    const pill = document.createElement("i");
+    pill.style.height = `${12 + i * 3.6}px`;
+    pills.append(pill);
+  }
 
   const clock = (s) => {
     const whole = Math.max(0, Math.floor(s || 0));
@@ -267,76 +518,95 @@
   };
   const render = () => {
     const duration = video.duration || 25;
-    const at = video.currentTime;
-    const pct = `${(at / duration) * 100}%`;
-    fill.style.width = pct;
-    thumb.style.left = pct;
-    seek.max = String(duration);
-    seek.value = String(at);
-    seek.setAttribute("aria-valuetext", `${clock(at)} of ${clock(duration)}`);
-    time.textContent = `${clock(at)} / ${clock(duration)}`;
+    const buffered = video.buffered.length ? video.buffered.end(video.buffered.length - 1) : 0;
+    scrub.style.setProperty("--p", `${(video.currentTime / duration) * 100}%`);
+    scrub.style.setProperty("--b", `${(buffered / duration) * 100}%`);
+    seek.value = String(Math.round((video.currentTime / duration) * 1000));
+    seek.setAttribute("aria-valuetext", `${clock(video.currentTime)} of ${clock(duration)}`);
+    $("time").textContent = `${clock(video.currentTime)} / ${clock(duration)}`;
+  };
+  const renderLevel = () => {
+    const lit = video.muted ? 0 : Number(volume.value);
+    [...pills.children].forEach((pill, i) => pill.classList.toggle("on", i < lit));
+    volume.setAttribute("aria-valuetext", video.muted ? "muted" : `${Math.round((lit / LEVELS) * 100)}%`);
+    $("mute-icon").setAttribute("d", video.muted || lit === 0 ? MUTED : SOUND);
+    $("mute").setAttribute("aria-label", video.muted ? "Unmute" : "Mute");
   };
   const sync = () => {
     const playing = !video.paused && !video.ended;
     screen.classList.toggle("playing", playing);
-    toggleIcon.setAttribute("d", playing ? PAUSE : PLAY);
-    toggle.setAttribute("aria-label", playing ? "Pause" : "Play");
-    badge.classList.toggle("replay", video.ended);
-    badge.setAttribute("aria-label", video.ended ? "Play the teaser again" : "Play the teaser with sound");
+    housing.classList.toggle("is-playing", playing);
+    $("toggle-icon").setAttribute("d", playing ? PAUSE : PLAY);
+    $("toggle").setAttribute("aria-label", playing ? "Pause" : "Play");
+    $("pod-icon").setAttribute("d", video.ended ? REPLAY : PLAY);
+    $("pod").setAttribute("aria-label", video.ended ? "Play the teaser again" : "Play the teaser with sound");
   };
   const playPause = () => {
     if (video.paused || video.ended) {
-      video.muted = false;
       video.play();
     } else {
       video.pause();
     }
   };
+  const setLevel = (step) => {
+    volume.value = String(Math.min(LEVELS, Math.max(0, step)));
+    video.volume = Number(volume.value) / LEVELS;
+    video.muted = Number(volume.value) === 0;
+  };
 
-  badge.addEventListener("click", (event) => { event.stopPropagation(); playPause(); });
+  video.volume = Number(volume.value) / LEVELS;
+  $("pod").addEventListener("click", (event) => { event.stopPropagation(); playPause(); });
   screen.addEventListener("click", playPause);
-  toggle.addEventListener("click", playPause);
-  mute.addEventListener("click", () => { video.muted = !video.muted; });
-  full.addEventListener("click", () => {
+  $("toggle").addEventListener("click", playPause);
+  $("mute").addEventListener("click", () => {
+    if (Number(volume.value) === 0) {
+      setLevel(LEVELS - 1);
+    } else {
+      video.muted = !video.muted;
+    }
+  });
+  $("full").addEventListener("click", () => {
     if (document.fullscreenElement) {
       document.exitFullscreen();
     } else {
       (screen.requestFullscreen ? screen : video).requestFullscreen?.();
     }
   });
-  seek.addEventListener("input", () => { video.currentTime = Number(seek.value); render(); });
-  video.addEventListener("volumechange", () => {
-    muteIcon.setAttribute("d", video.muted ? MUTED : SOUND);
-    mute.setAttribute("aria-label", video.muted ? "Unmute" : "Mute");
-  });
+  seek.addEventListener("input", () => { video.currentTime = (Number(seek.value) / 1000) * (video.duration || 25); render(); });
+  volume.addEventListener("input", () => setLevel(Number(volume.value)));
+  video.addEventListener("volumechange", renderLevel);
   for (const type of ["play", "pause", "ended"]) {
     video.addEventListener(type, sync);
   }
-  for (const type of ["timeupdate", "loadedmetadata", "seeked"]) {
+  for (const type of ["timeupdate", "loadedmetadata", "seeked", "progress"]) {
     video.addEventListener(type, render);
   }
   document.addEventListener("keydown", (event) => {
-    if (event.target instanceof HTMLInputElement && event.key !== " " && event.key !== "k") {
-      return;
-    }
+    const onRange = event.target instanceof HTMLInputElement;
+    const onButton = event.target instanceof HTMLButtonElement || event.target instanceof HTMLAnchorElement;
     const key = event.key.toLowerCase();
     if (key === " " || key === "k") {
-      if (event.target instanceof HTMLButtonElement && key === " ") {
+      if (onButton && key === " ") {
         return;
       }
       event.preventDefault();
       playPause();
     } else if (key === "m") {
-      video.muted = !video.muted;
+      $("mute").click();
     } else if (key === "f") {
-      full.click();
-    } else if (key === "arrowright" || key === "arrowleft") {
+      $("full").click();
+    } else if (!onRange && (key === "arrowright" || key === "arrowleft")) {
+      event.preventDefault();
       video.currentTime = Math.min(video.duration || 25, Math.max(0, video.currentTime + (key === "arrowright" ? 5 : -5)));
+    } else if (!onRange && (key === "arrowup" || key === "arrowdown")) {
+      event.preventDefault();
+      setLevel(Number(volume.value) + (key === "arrowup" ? 1 : -1));
     } else if (key === "home") {
       video.currentTime = 0;
     }
   });
   render();
+  renderLevel();
   sync();
 </script>
 </body>
