@@ -1,6 +1,6 @@
 # README banner and trailer
 
-The animated banner at the top of the main README and the teaser trailer under it, authored with [Clayzo](https://www.npmjs.com/package/clayzo). This folder is its own project, so Clayzo's packages never become dependencies of the server. `kit.ts` holds the parts both share: the liquid chrome, the block lettering (A–Z, `.`, `-`), the crossed-blade emblem and the steel bunker.
+The animated banner at the top of the main README and the teaser trailer under it, authored with [Clayzo](https://www.npmjs.com/package/clayzo). This folder is its own project, so Clayzo's packages never become dependencies of the server. `kit.ts` holds the parts they share: the block lettering (A–Z, `.`, `-`, in a heavy or a light cut), the trailer's liquid chrome, crossed-blade emblem and steel bunker, and the shape helpers.
 
 ```bash
 cd assets/banner
@@ -22,10 +22,10 @@ ffmpeg -i ../video/trailer.mp4 -c:v libvpx-vp9 -b:v 0 -crf 34 -row-mt 1 -c:a lib
 ffmpeg -ss 1.4 -i ../video/trailer.mp4 -frames:v 1 -vf scale=1280:720 -q:v 3 ../../site/poster.jpg
 ```
 
-- Style: 2000s performance-gear design language, with no product or mark: sculpted liquid chrome (sky, hard dark horizon, ground reflection, extruded depth), an aggressive wide italic block wordmark drawn as chamfered polygons, a bold emblem of two crossed accelerating-curve blades held by a hex bolt, and a dark industrial bunker (steel plate, grooved seams, oversized domed rivets).
-- Motion: a slow product reveal. Dark; a light sweeps the bunker; the emblem settles in; the wordmark is revealed behind a travelling reflection (animated gradient endpoints); a hold with one glint; back to dark. The first and last frames match, so the 8-second loop is seamless.
+- Style: late-90s / early-2000s industrial kit and technical sportswear, the same language as the player page: one brushed-titanium plate with an aerodynamic nose that tapers to the right, screws only at its corners, the name engraved in a wide, upright industrial cut with an engraved spec line and a taped seam, and a molded-rubber module (pixel LCD, pebble key with a status light, level columns, mesh vent) on graphite. One accent, Discord blurple, used for state only.
+- Motion: the module runs one cycle, like hardware: READY; the key sinks and its light comes on; RUN while a progress bar fills and the levels move; OK; back to READY. A soft sheen crosses the titanium once. The first and last frames match, so the 8-second loop is seamless.
 - `banner.ts` is the source of truth. `banner.json` is generated and not committed.
 - The banner is pure geometry (polygon letters, a pixel-font microtype line, shapes) so the animated SVG export draws it exactly. It animates with CSS and SMIL (for the gradient sweeps), both of which GitHub plays in an `<img>`.
 - If an export reports a node it can't draw exactly, it writes nothing and names the node.
-- The SVG export doesn't paint the canvas colour, so the steel plate is drawn as the first shape; without it the light ink disappears on GitHub's light theme.
+- The SVG export doesn't paint the canvas colour, so the graphite field is drawn as the first shape; without it the light ink disappears on GitHub's light theme.
 - In CI, use a revocable `CLAYZO_TOKEN` (`npx clayzo token create "readme banner"`) instead of `login`.
