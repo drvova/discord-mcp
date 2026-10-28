@@ -4,9 +4,10 @@
 //   node trailer.ts --preview && npx clayzo export trailer-preview.json ../img/trailer.svg --format svg
 //                                       the silent, looping preview the README shows, with a play
 //                                       badge that links to the player page (site/)
-//   npx clayzo export trailer.json trailer.mp4 --format mp4
+//   npx clayzo export trailer.json trailer.mp4 --format mp4 --tier final
 //   python3 trailer-audio.py            synthesises the soundtrack (trailer.wav)
-//   ffmpeg -i trailer.mp4 -i trailer.wav -map 0:v -map 1:a -c:v copy -c:a aac -shortest ../video/trailer.mp4
+//   ffmpeg -i trailer.mp4 -i trailer.wav -map 0:v -map 1:a -c:v copy -c:a aac -b:a 192k -shortest -movflags +faststart ../video/trailer.mp4
+// README.md has the full recipe, including the WebM and the player's poster.
 //
 // The cut follows 2000s product spots: a slow build out of darkness, macro
 // hardware and light raking across metal, parts sliding and locking with
