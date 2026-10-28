@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/img/banner.svg" width="100%" alt="discord-mcp. One tool. Your code. It remembers. A request travels from the model through the run tool and the agent to Discord.">
+<img src="assets/img/banner.svg" width="100%" alt="discord-mcp. One tool runs your code, tokens stay in the agent, helpers are kept across restarts.">
 
 ### Discord for language models, through one tool that runs code
 
