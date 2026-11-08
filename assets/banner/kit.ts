@@ -1,27 +1,17 @@
-// Shared parts for the banner and the trailer: liquid chrome, the block
-// lettering, the crossed-blade emblem and the steel bunker. See banner.ts
-// for the style these follow.
+// Shared parts for the banner and the trailer: the scene builder, path and
+// gradient helpers, the travelling light, hex hardware and the wide block
+// lettering. See banner.ts and trailer.ts for the design they follow.
 
 import {
-    base,
     constant,
-    fill,
     hex,
     keyed,
-    stroke,
     type Animatable,
     type Color,
     type GradientFillStyle,
     type PathData,
     type SceneNode,
 } from "@clayzo/animation";
-
-export const BLACK = hex("#050608");
-export const WHITE = hex("#FFFFFF");
-export const STEEL_DARK = hex("#101217");
-export const STEEL = hex("#1A1D24");
-export const STEEL_LIGHT = hex("#2A2F39");
-export const MICROTYPE = hex("#9AA3B5");
 
 // Long, heavy eases for reveals; a hard snap for things that lock.
 export const SLOW = { x1: 0.6, y1: 0, x2: 0.15, y2: 1 };
@@ -74,10 +64,6 @@ export const pts = (...xy: number[]): Point[] => {
     }
     return out;
 };
-// A rectangle with its corners cut at 45°.
-export const chamfered = (x: number, y: number, w: number, h: number, cut: number) =>
-    pts(x + cut, y, x + w - cut, y, x + w, y + cut, x + w, y + h - cut, x + w - cut, y + h, x + cut, y + h, x, y + h - cut, x, y + cut);
-
 export const linear = (stops: Array<[number, Color]>, from: Point, to: Point, opacity: Animatable<number> = constant(1)): GradientFillStyle => ({
     kind: "linear",
     stops: constant(stops.map(([position, color]) => ({ position, color }))),
@@ -92,30 +78,6 @@ export const radial = (stops: Array<[number, Color]>, radius: number): GradientF
     end: constant({ x: radius, y: 0 }),
     opacity: constant(1),
 });
-
-// Liquid chrome: bright sky, a hard dark horizon just below the middle,
-// then a lighter ground reflection.
-export const CHROME: Array<[number, Color]> = [
-    [0, hex("#FFFFFF")],
-    [0.18, hex("#E4E9F1")],
-    [0.44, hex("#8C95A6")],
-    [0.5, hex("#14171D")],
-    [0.56, hex("#3B4250")],
-    [0.8, hex("#B8C1CF")],
-    [1, hex("#F4F7FB")],
-];
-// The same chrome, tinted Discord blurple.
-export const BLURPLE_CHROME: Array<[number, Color]> = [
-    [0, hex("#FFFFFF")],
-    [0.18, hex("#D8DCFF")],
-    [0.44, hex("#7C86F7")],
-    [0.5, hex("#14163A")],
-    [0.56, hex("#3A43B8")],
-    [0.8, hex("#A9B1FF")],
-    [1, hex("#EEF0FF")],
-];
-// Top to bottom over [top, bottom].
-export const chrome = (stops: Array<[number, Color]>, top: number, bottom: number) => linear(stops, { x: 0, y: top }, { x: 0, y: bottom });
 
 export type Pass = { start: number; span: number };
 // A travelling reflection: a soft white band whose gradient endpoints move
@@ -154,80 +116,12 @@ export const hexagon = (radius: number, offset: number) => ({
     rotationOffset: constant(offset),
 });
 
-// --- The emblem: two crossed blades of liquid chrome, held by a hex bolt ---
-
-type Sample = { point: Point; normal: Point; s: number };
-// An Euler spiral (curvature growing along it): the accelerating curve.
-export function spiral(x: number, y: number, headingDeg: number, length: number, turnDeg: number, count = 64): Sample[] {
-    const rate = (2 * turnDeg * (Math.PI / 180)) / (length * length);
-    const step = length / count;
-    const samples: Sample[] = [];
-    let px = x;
-    let py = y;
-    for (let i = 0; i <= count; i += 1) {
-        const s = i * step;
-        const heading = headingDeg * (Math.PI / 180) + (rate * s * s) / 2;
-        samples.push({ point: { x: px, y: py }, normal: { x: -Math.sin(heading), y: Math.cos(heading) }, s: s / length });
-        const mid = headingDeg * (Math.PI / 180) + (rate * (s + step / 2) ** 2) / 2;
-        px += Math.cos(mid) * step;
-        py += Math.sin(mid) * step;
-    }
-    return samples;
-}
-// A fang: fat in the middle, sharp at both ends, swelling toward the tip.
-const fang = (samples: Sample[], width: number): Point[] => {
-    const w = (s: number) => width * Math.sin(Math.PI * s ** 0.8) ** 0.9 + 0.5;
-    const side = (dir: number) => samples.map(({ point, normal, s }) => ({ x: point.x + normal.x * w(s) * dir, y: point.y + normal.y * w(s) * dir }));
-    return [...side(-1), ...side(1).reverse()];
-};
-// Drawn about the emblem's origin; offset, not mirrored.
-const spines = [spiral(-122, 112, -40, 320, -24), spiral(-118, -118, 50, 300, 30)];
-// Where the two spines cross: the bolt sits there, and callers anchor the
-// emblem on it.
-export const EMBLEM_CROSSING = spines[0].reduce((best, a) => {
-    const d = Math.min(...spines[1].map((b) => Math.hypot(a.point.x - b.point.x, a.point.y - b.point.y)));
-    return d < best.d ? { d, point: a.point } : best;
-}, { d: Infinity, point: { x: 0, y: 0 } }).point;
-export const EMBLEM_BLADES = [fang(spines[0], 32), fang(spines[1], 26)];
-
-// The emblem's parts, as children for a group: depth, chrome bodies, their
-// reflections, and the bolt (which turns if `boltTurn` is given).
-export const emblem = (scene: Scene, id: string, passes: Pass[], boltTurn?: Animatable<{ x: number; y: number; z: number }>) => {
-    const end = scene.end;
-    const parts: string[] = [];
-    for (const [index, outline] of EMBLEM_BLADES.entries()) {
-        const path = constant(shape(outline));
-        parts.push(scene.child({ ...base(`${id}.${index}.depth`, { outTick: end, x: 7, y: 9 }), type: "path", path, style: { fill: fill(BLACK, 0.9) } }));
-        parts.push(scene.child({
-            ...base(`${id}.${index}.body`, { outTick: end, x: 0, y: 0 }),
-            type: "path",
-            path,
-            style: { gradientFill: chrome(CHROME, -130, 130), stroke: stroke(BLACK, 2) },
-        }));
-    }
-    for (const [index, outline] of EMBLEM_BLADES.entries()) {
-        parts.push(scene.child({
-            ...base(`${id}.${index}.sweep`, { outTick: end, x: 0, y: 0 }),
-            type: "path",
-            path: constant(shape(outline)),
-            style: { gradientFill: sweep(`${id}.${index}.sweep`, passes, -170, 170, 90) },
-        }));
-    }
-    const { x, y } = EMBLEM_CROSSING;
-    parts.push(scene.child({ ...base(`${id}.bolt`, { outTick: end, x, y, rotation: boltTurn }), ...hexagon(19, 0), style: { gradientFill: chrome(CHROME, -19, 19), stroke: stroke(BLACK, 2) } }));
-    parts.push(scene.child({ ...base(`${id}.bolt.socket`, { outTick: end, x, y, rotation: boltTurn }), ...hexagon(8, 30), style: { fill: fill(BLACK) } }));
-    return parts;
-};
-
 // --- The lettering: wide, italic, sharp-edged block letters ---
 
 // Letters on a cap-height grid: t is the stroke, c the chamfer.
-// `cut` sets the stroke weight and chamfer as fractions of the cap height:
-// the trailer's heavy chrome cut is the default; the banner uses a lighter,
-// near-square industrial cut.
+// `cut` sets the stroke weight and chamfer as fractions of the cap height.
 export type Cut = { weight: number; chamfer: number };
-export const HEAVY: Cut = { weight: 0.25, chamfer: 0.2 };
-export const glyph = (letter: string, H: number, cut: Cut = HEAVY): { width: number; path: PathData } => {
+export const glyph = (letter: string, H: number, cut: Cut): { width: number; path: PathData } => {
     const t = H * cut.weight;
     const c = H * cut.chamfer;
     const ci = c * 0.5;
@@ -363,99 +257,4 @@ export const glyph = (letter: string, H: number, cut: Cut = HEAVY): { width: num
         default:
             throw new Error(`No glyph for ${letter}`);
     }
-};
-
-export const SKEW = constant({ x: -14, y: 0 });
-export type LineOptions = {
-    stops: Array<[number, Color]>;
-    passes: Pass[];
-    stretch?: number;
-    // Opacity for each letter, given its position along the line (0 to 1).
-    opacity: (index: number, along: number) => Animatable<number>;
-};
-// One line of chrome letters starting at (x, y). Each letter is a group of
-// depth, chrome body and reflection; the reflection crosses the whole line,
-// so each letter's copy of it is the line's band shifted into its own space.
-export const lettering = (scene: Scene, id: string, text: string, x: number, y: number, H: number, options: LineOptions) => {
-    const stretch = options.stretch ?? 1.16;
-    const gap = H * 0.16;
-    const letters = [...text].map((letter) => glyph(letter, H));
-    const total = letters.reduce((sum, g) => sum + g.width * stretch, 0) + gap * (letters.length - 1);
-    const depth = H * 0.065;
-    let cursor = x;
-    for (const [index, { width, path }] of letters.entries()) {
-        const letterId = `${id}.${index}`;
-        const offset = cursor - x;
-        if (path.contours.length === 0) {
-            cursor += width * stretch + gap;
-            continue;
-        }
-        const parts = [
-            scene.child({ ...base(`${letterId}.depth`, { outTick: scene.end, x: depth, y: depth * 1.15 }), type: "path", path: constant(path), style: { fill: fill(BLACK, 0.95) } }),
-            scene.child({ ...base(`${letterId}.body`, { outTick: scene.end, x: 0, y: 0 }), type: "path", path: constant(path), style: { gradientFill: chrome(options.stops, 0, H), stroke: stroke(BLACK, 2) } }),
-            scene.child({
-                ...base(`${letterId}.sweep`, { outTick: scene.end, x: 0, y: 0 }),
-                type: "path",
-                path: constant(path),
-                style: { gradientFill: sweep(`${letterId}.sweep`, options.passes, (-160 - offset) / stretch, (total + 160 - offset) / stretch, 110) },
-            }),
-        ];
-        scene.add({
-            ...base(letterId, { outTick: scene.end, x: cursor, y, skew: SKEW, scale: { x: stretch, y: 1 }, opacity: options.opacity(index, offset / total) }),
-            type: "group",
-            children: parts,
-        });
-        cursor += width * stretch + gap;
-    }
-    return { width: total, right: x + total };
-};
-// The width a line of lettering will take, for centring it.
-export const letteringWidth = (text: string, H: number, stretch = 1.16) =>
-    [...text].reduce((sum, letter) => sum + glyph(letter, H).width * stretch, 0) + H * 0.16 * (text.length - 1);
-
-// --- The bunker: heavy steel plate, grooved seams, domed rivets ---
-
-export const steelPlate = (scene: Scene, id: string, outline: Point[], top: number, bottom: number) => {
-    scene.add({
-        ...base(id, { outTick: scene.end, x: 0, y: 0 }),
-        type: "path",
-        path: constant(shape(outline)),
-        style: { gradientFill: linear([[0, STEEL_LIGHT], [0.35, STEEL], [1, STEEL_DARK]], { x: 0, y: top }, { x: 0, y: bottom }) },
-    });
-};
-// Galvanised sheen: a broad diagonal band, barely there.
-export const sheenBand = (scene: Scene, id: string, x: number, height: number, width = 150) => {
-    scene.add({
-        ...base(id, { outTick: scene.end, x: 0, y: 0 }),
-        type: "path",
-        path: constant(shape(pts(x, 0, x + width, 0, x + width * 0.2, height, x - width * 0.8, height))),
-        style: { fill: fill(WHITE, 0.018) },
-    });
-};
-// A grooved seam: a dark cut with a lit lip beside it.
-export const seam = (scene: Scene, id: string, a: Point, b: Point, depth = 4) => {
-    scene.add({ ...base(`${id}.cut`, { outTick: scene.end, x: 0, y: 0 }), type: "path", path: constant(openPath(a, b)), style: { stroke: stroke(BLACK, depth, { cap: "butt" }) } });
-    const lip = a.x === b.x ? { x: depth * 0.62, y: 0 } : { x: 0, y: depth * 0.62 };
-    scene.add({
-        ...base(`${id}.lip`, { outTick: scene.end, x: 0, y: 0 }),
-        type: "path",
-        path: constant(openPath({ x: a.x + lip.x, y: a.y + lip.y }, { x: b.x + lip.x, y: b.y + lip.y })),
-        style: { stroke: stroke(hex("#3C4250"), depth / 4, { cap: "butt" }) },
-    });
-};
-// A domed rivet: a dark dome with a highlight up and to the left.
-export const rivet = (scene: Scene, id: string, x: number, y: number, size = 13) => {
-    const k = size / 13;
-    scene.add({
-        ...base(id, { outTick: scene.end, x, y }),
-        type: "ellipse",
-        size: constant({ width: size, height: size }),
-        style: { gradientFill: linear([[0, hex("#5B6373")], [0.5, hex("#262A33")], [1, BLACK]], { x: -4 * k, y: -5 * k }, { x: 4 * k, y: 5 * k }), stroke: stroke(BLACK, 1.5 * k) },
-    });
-    scene.add({
-        ...base(`${id}.shine`, { outTick: scene.end, x: x - 2 * k, y: y - 2.5 * k }),
-        type: "ellipse",
-        size: constant({ width: 4 * k, height: 3 * k }),
-        style: { fill: fill(WHITE, 0.55) },
-    });
 };
