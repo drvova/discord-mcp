@@ -45,7 +45,7 @@
     "homepage": "https://github.com/sashathelambo/discord-mcp#readme",
     "dependencies": {
         "@discordjs/voice": "^0.19.2",
-        "@hono/node-server": "^2.1.5",
+        "@hono/node-server": "^2.1.8",
         "@modelcontextprotocol/sdk": "^1.32.2",
         "@opentelemetry/api": "~1.10.0",
         "@opentelemetry/auto-instrumentations-node": "^0.82.0",
